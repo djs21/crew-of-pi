@@ -424,7 +424,6 @@ export function spawnSubagentAsync(
         },
         { deliverAs: "steer", triggerTurn: true },
       );
-    }
     } finally {
       concurrencyTracker.release();
     }
