@@ -1,106 +1,125 @@
 /**
  * Widget renderer — renders the TUI widget showing running subagents.
+ * Uses factory function + spinner animation (like pi-crew pattern).
  */
 
-import { type ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { Text } from "@earendil-works/pi-tui";
 import { getWidgetStore } from "./widget.store";
 import type { WidgetRow } from "./widget.types";
 
+const SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
+const SPINNER_INTERVAL_MS = 80;
+
+// ─── Formatting ─────────────────────────────────────────────────
+
+const STATUS_ICON: Record<string, string> = {
+  running: "⏳",
+  spawned: "⏳",
+  completed: "✅",
+  failed: "❌",
+  aborted: "⏹️",
+  orphaned: "👻",
+};
+
 function formatTokens(count: number): string {
-  if (count < 1000) return count.toString();
-  if (count < 10000) return `${(count / 1000).toFixed(1)}k`;
-  if (count < 1000000) return `${Math.round(count / 1000)}k`;
-  return `${(count / 1000000).toFixed(1)}M`;
+  if (count >= 1_000_000) return `${(count / 1_000_000).toFixed(1)}M`;
+  if (count >= 1_000) return `${(count / 1_000).toFixed(1)}k`;
+  return String(count);
 }
 
-function getStatusIcon(status: string): string {
-  switch (status) {
-    case "running":
-    case "spawned":
-      return "🟢";
-    case "completed":
-      return "✅";
-    case "failed":
-      return "❌";
-    case "aborted":
-      return "⛔";
-    case "orphaned":
-      return "👻";
-    default:
-      return "⚪";
+function buildWidgetLine(row: WidgetRow, frame: string): string {
+  const model = row.model ?? "…";
+  const icon = STATUS_ICON[row.status] ?? frame;
+  return `${icon} ${row.id} (${model}) · turn ${row.turns} · ${formatTokens(row.usage.contextTokens)} ctx`;
+}
+
+// ─── Widget State ───────────────────────────────────────────────
+
+interface WidgetState {
+  ctx: ExtensionContext;
+  text: Text;
+  // biome-ignore lint: TUI type from factory param
+  tui: any;
+  timer: ReturnType<typeof setInterval>;
+  frameIndex: number;
+}
+
+let widget: WidgetState | undefined;
+
+function disposeWidget(state: WidgetState): void {
+  clearInterval(state.timer);
+  if (widget === state) widget = undefined;
+}
+
+function clearWidget(): void {
+  const current = widget;
+  if (!current) return;
+  disposeWidget(current);
+  current.ctx.ui.setWidget("crew-status", undefined);
+}
+
+function hasRunningAgent(rows: WidgetRow[]): boolean {
+  return rows.some((r) => r.status === "running" || r.status === "spawned");
+}
+
+function syncWidgetText(state: WidgetState, rows: WidgetRow[]): void {
+  const frame = SPINNER_FRAMES[state.frameIndex % SPINNER_FRAMES.length];
+  state.text.setText(rows.map((r) => buildWidgetLine(r, frame)).join("\n"));
+  state.tui.requestRender();
+}
+
+// ─── Public API ─────────────────────────────────────────────────
+
+export function updateWidget(ctx: ExtensionContext): void {
+  // Only render in interactive TUI mode
+  if (ctx.mode !== "tui") {
+    clearWidget();
+    return;
   }
-}
 
-function formatRow(row: WidgetRow): string {
-  const icon = getStatusIcon(row.status);
-  const usage = row.usage;
-  const parts: string[] = [`${icon} ${row.agentName}`, `[${row.status}]`];
-  if (usage.turns > 0) parts.push(`${usage.turns} turns`);
-  if (usage.contextTokens > 0) parts.push(`ctx:${formatTokens(usage.contextTokens)}`);
-  if (usage.cost > 0) parts.push(`$${usage.cost.toFixed(4)}`);
-  if (row.model) parts.push(row.model);
-
-  return parts.join("  ");
-}
-
-/**
- * Build the widget text lines.
- */
-export function buildWidgetLines(): string[] {
   const store = getWidgetStore();
-  const state = store.getState();
+  const rows = store.getActiveSummaries();
 
-  if (!state.isVisible || state.rows.length === 0) {
-    return [];
+  if (rows.length === 0) {
+    clearWidget();
+    return;
   }
 
-  const lines: string[] = [];
-  const running = state.rows.filter(
-    (r) => r.status === "running" || r.status === "spawned",
-  );
-  const completed = state.rows.filter((r) => r.status === "completed");
-  const failed = state.rows.filter(
-    (r) => r.status === "failed" || r.status === "aborted" || r.status === "orphaned",
-  );
-
-  // Running first
-  for (const row of running) {
-    lines.push(formatRow(row));
+  // If widget exists but context changed, replace it
+  if (widget && widget.ctx !== ctx) clearWidget();
+  if (widget) {
+    syncWidgetText(widget, rows);
+    return;
   }
 
-  // Then failed
-  for (const row of failed) {
-    lines.push(formatRow(row));
-  }
+  // Create new widget with spinner animation
+  ctx.ui.setWidget("crew-status", (tui: any, _theme: any) => {
+    const text = new Text("", 1, 0);
+    const state: WidgetState = {
+      ctx,
+      text,
+      tui,
+      frameIndex: 0,
+      timer: setInterval(() => {
+        const currentRows = store.getActiveSummaries();
+        if (currentRows.length === 0) {
+          clearWidget();
+          return;
+        }
+        if (!hasRunningAgent(currentRows)) return;
+        state.frameIndex++;
+        syncWidgetText(state, currentRows);
+      }, SPINNER_INTERVAL_MS),
+    };
 
-  // Then completed (only if space)
-  if (running.length + failed.length < 5) {
-    for (const row of completed.slice(0, 3)) {
-      lines.push(formatRow(row));
-    }
-  }
+    widget = state;
+    syncWidgetText(state, rows);
 
-  // Summary line
-  const total = state.rows.length;
-  const runCount = running.length;
-  if (total > 0) {
-    lines.push(`─── ${runCount} running, ${total} total ───`);
-  }
-
-  return lines;
-}
-
-/**
- * Update the TUI widget with current state.
- */
-export function renderWidget(pi: ExtensionAPI): void {
-  // pi.ui only available in interactive mode; skip for print/json/rpc modes
-  if (!pi.ui) return;
-
-  const lines = buildWidgetLines();
-  if (lines.length > 0) {
-    pi.ui.setWidget("crew-status", lines);
-  } else {
-    pi.ui.setWidget("crew-status", []);
-  }
+    return Object.assign(text, {
+      dispose() {
+        disposeWidget(state);
+      },
+    });
+  });
 }

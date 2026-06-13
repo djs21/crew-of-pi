@@ -66,6 +66,15 @@ export class WidgetStore {
   }
 
   /**
+   * Get rows for active widget display (running + recently completed/failed).
+   */
+  getActiveSummaries(): WidgetRow[] {
+    return this.state.rows.filter(
+      (r) => r.status === "running" || r.status === "spawned",
+    );
+  }
+
+  /**
    * Set visibility.
    */
   setVisible(visible: boolean): void {

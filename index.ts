@@ -36,8 +36,7 @@ import { registerRespondTool } from "./slices/lifecycle/lifecycle.respond";
 import { registerDoneTool } from "./slices/lifecycle/lifecycle.done";
 
 // ─── Widget ─────────────────────────────────────────────────────
-import { registerWidgetUpdater, syncWidgetFromRegistry } from "./slices/widget/widget.updater";
-import { renderWidget } from "./slices/widget/widget.renderer";
+import { registerWidgetUpdater } from "./slices/widget/widget.updater";
 
 export default function (pi: ExtensionAPI) {
   // ─── Init: Bundled Agents Path ─────────────────────────────
@@ -74,8 +73,6 @@ export default function (pi: ExtensionAPI) {
       includeRules: true,
     });
 
-    // Render widget
-    renderWidget(pi);
   });
 
   // ─── Init: Session Shutdown (cleanup) ───────────────────────
