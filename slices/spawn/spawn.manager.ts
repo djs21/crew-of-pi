@@ -234,7 +234,11 @@ export async function spawnSubagentProcess(
   try {
     // Write system prompt to temp file if needed
     if (agentConfig.systemPrompt.trim()) {
-      const tmp = await writePromptToTempFile(agentConfig.name, agentConfig.systemPrompt);
+      let promptContent = agentConfig.systemPrompt;
+      if (agentConfig.interactive) {
+        promptContent += `\n\n## Interactive Mode\n\nYou are running in INTERACTIVE mode. If you need clarification from the orchestrator, output a message starting with "CLARIFY:" and the orchestrator will respond. You will receive the response via stdin.\n`;
+      }
+      const tmp = await writePromptToTempFile(agentConfig.name, promptContent);
       tmpPromptDir = tmp.dir;
       tmpPromptPath = tmp.filePath;
       trackTempDir(tmp.dir);
@@ -253,10 +257,13 @@ export async function spawnSubagentProcess(
       const proc = spawn(invocation.command, invocation.args, {
         cwd,
         shell: false,
-        stdio: ["ignore", "pipe", "pipe"],
+        stdio: agentConfig.interactive ? ["pipe", "pipe", "pipe"] : ["ignore", "pipe", "pipe"],
       });
 
       handle.pid = proc.pid;
+      if (agentConfig.interactive) {
+        handle.proc = proc;
+      }
 
       let buffer = "";
 
@@ -271,6 +278,7 @@ export async function spawnSubagentProcess(
 
       proc.on("close", (code) => {
         if (buffer.trim()) parseJsonLines(buffer, streamingResult, parseState);
+        handle.proc = undefined;
         resolve(code ?? 0);
       });
 
@@ -361,6 +369,7 @@ export function spawnSubagentAsync(
       const result = await spawnSubagentProcess(agentConfig, task, signal, cwd);
       handle.status = result.handle.status;
       handle.turns = result.handle.turns;
+      handle.proc = result.handle.proc;
 
       // Persist result
       pi.appendEntry("crew-subagent-result", {

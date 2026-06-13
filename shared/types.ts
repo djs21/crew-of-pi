@@ -51,6 +51,7 @@ export interface SubagentHandle {
   agentName: string;
   status: SubagentStatus;
   pid?: number;
+  proc?: any;  // ChildProcess reference for interactive subagents
   task: string;
   model?: string;
   interactive: boolean;
