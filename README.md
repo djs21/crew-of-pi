@@ -13,9 +13,12 @@ Spawn isolated subagents that work in parallel while your main session stays res
 - **🧹 Clean main context** — Subagents run in isolated `pi` processes (`--no-session`), keeping the main agent's context window lean.
 - **🔒 Main agent is read-only** — Main agent cannot `write` or `edit` files. All code changes are delegated to cheap `worker` subagents. Saves API costs.
 - **⚡ Async non-blocking** — Subagents run in the background. Results are delivered as steering messages. Main agent stays interactive.
+- **📋 Subagent listing** — `crew_list` shows available agent definitions and running subagents with status, turns, and costs.
 - **💬 Inter-agent communication** — Subagents can talk to each other via a message bus. All communication is relayed to the main agent so it never loses context.
 - **🤖 Automatic delegation** — System prompt injection makes the main agent aware of its crew. It decides: `scout` for recon, `planner` for planning, `worker` for code, `reviewer` for review.
 - **🔌 Per-agent extensions** — Each subagent definition can load custom extensions (path-based or `pi install` packages). Different subagents get different capabilities.
+- **⚙️ Config loader** — JSON-based agent overrides via `crew-of-pi.json` (`.pi/crew-of-pi.json` overrides `~/.pi/agent/crew-of-pi.json`).
+- **💾 Session persistence** — All subagent state persists across `/resume`, `/reload`, and session restarts.
 - **📊 TUI status widget** — Live widget shows running subagents with status, turns, and token usage.
 - **🔗 Chain workflows** — Sequential multi-agent pipelines with `{previous}` placeholder injection.
 
@@ -81,7 +84,7 @@ After installation, restart pi or run `/reload`. The extension auto-loads from `
 │  │ write ✏️  │  │ read 👁️   │  │ read 👁️  │  │read 👁️  │ │
 │  │  edit ✏️  │  │ grep 🔍   │  │ grep 🔍  │  │grep 🔍  │ │
 │  │  bash ⚡  │  │ find 🔎   │  │ find 🔎  │  │ bash ⚡  │ │
-│  │ haiku $  │  │ haiku $   │  │ haiku $  │  │haiku $  │ │
+│  │ deepseek $  │  │ deepseek $   │  │ deepseek $  │  │deepseek $  │ │
 │  └──────────┘  └───────────┘  └──────────┘  └────────┘ │
 │                                                          │
 └──────────────────────────────────────────────────────────┘
@@ -244,15 +247,15 @@ Close an interactive subagent session.
 
 ## Bundled Subagents
 
-5 subagents ship with crew-of-pi. All use cheap models (`claude-haiku-4-5`) for cost-efficient delegation.
+5 subagents ship with crew-of-pi. All use cheap models (`deepseek-v4-flash`) for cost-efficient delegation.
 
 | Agent | Purpose | Tools | Model | Interactive |
 |-------|---------|-------|-------|-------------|
-| **worker** | General implementation with full write capabilities | `read, write, edit, grep, find, ls, bash` | `anthropic/claude-haiku-4-5` | No |
-| **scout** | Fast codebase recon, returns structured findings | `read, grep, find, ls, bash` | `anthropic/claude-haiku-4-5` | No |
-| **researcher** | Deep codebase research and analysis | `read, grep, find, ls, bash` | `anthropic/claude-haiku-4-5` | No |
-| **planner** | Creates implementation plans (read-only) | `read, grep, find, ls` | `anthropic/claude-haiku-4-5` | No |
-| **reviewer** | Code review for quality, security, maintainability | `read, grep, find, ls, bash` | `anthropic/claude-haiku-4-5` | No |
+| **worker** | General implementation with full write capabilities | `read, write, edit, grep, find, ls, bash` | `openrouter/deepseek/deepseek-v4-flash` | No |
+| **scout** | Fast codebase recon, returns structured findings | `read, grep, find, ls, bash` | `openrouter/deepseek/deepseek-v4-flash` | No |
+| **researcher** | Deep codebase research and analysis | `read, grep, find, ls, bash` | `openrouter/deepseek/deepseek-v4-flash` | No |
+| **planner** | Creates implementation plans (read-only) | `read, grep, find, ls` | `openrouter/deepseek/deepseek-v4-flash` | No |
+| **reviewer** | Code review for quality, security, maintainability | `read, grep, find, ls, bash` | `openrouter/deepseek/deepseek-v4-flash` | No |
 
 ### Example Worker Output Format
 
@@ -296,7 +299,7 @@ name: my-agent                  # Unique ID, no whitespace (use hyphens)
 description: What this agent does
 
 # Optional — Runtime
-model: anthropic/claude-haiku-4-5      # provider/model-id
+model: openrouter/deepseek/deepseek-v4-flash  # provider/model-id
 thinking: off                           # off | minimal | low | medium | high | xhigh
 tools: read, write, grep, find, ls      # comma-separated tool list
 skills: ast-grep, my-skill              # comma-separated skill names
@@ -360,6 +363,8 @@ Output format:
 ```
 
 ### Config Overrides (JSON)
+
+Config overrides are loaded via the **config loader** from two locations. Project-level config (`.pi/crew-of-pi.json`) overrides global-level config (`~/.pi/agent/crew-of-pi.json`), giving you per-project customization without affecting other projects.
 
 You can override subagent frontmatter fields without editing the `.md` files:
 
@@ -525,11 +530,11 @@ The main agent delegates code changes to cheap subagent models:
 | Role | Model | Read/Write | Relative Cost |
 |------|-------|-----------|---------------|
 | Main Orchestrator | Session default (e.g., sonnet) | Read-only | $$$—$$$$ |
-| Worker | claude-haiku-4-5 | Read + Write | $ |
-| Scout | claude-haiku-4-5 | Read-only | $ |
-| Researcher | claude-haiku-4-5 | Read-only | $ |
-| Planner | claude-haiku-4-5 | Read-only | $ |
-| Reviewer | claude-haiku-4-5 | Read-only | $ |
+| Worker | deepseek-v4-flash | Read + Write | $ |
+| Scout | deepseek-v4-flash | Read-only | $ |
+| Researcher | deepseek-v4-flash | Read-only | $ |
+| Planner | deepseek-v4-flash | Read-only | $ |
+| Reviewer | deepseek-v4-flash | Read-only | $ |
 
 The main agent only does **thinking & orchestration** (reading codebase, planning delegation). All expensive write operations run on cheap models in isolated contexts.
 
