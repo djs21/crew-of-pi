@@ -6,7 +6,6 @@
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { Type } from "typebox";
 import * as path from "node:path";
 
 // ─── Agent Discovery ────────────────────────────────────────────
@@ -35,6 +34,9 @@ import { restoreBusState } from "./slices/comms/comms.persistence";
 import { registerAbortTool } from "./slices/lifecycle/lifecycle.abort";
 import { registerRespondTool } from "./slices/lifecycle/lifecycle.respond";
 import { registerDoneTool } from "./slices/lifecycle/lifecycle.done";
+
+// ─── Crew List ─────────────────────────────────────────────────
+import { registerCrewListTool } from "./slices/crew-list/crew-list.tool";
 
 // ─── Widget ─────────────────────────────────────────────────────
 import { registerWidgetUpdater } from "./slices/widget/widget.updater";
@@ -94,56 +96,7 @@ export default function (pi: ExtensionAPI) {
   registerAbortTool(pi);
   registerRespondTool(pi);
   registerDoneTool(pi);
-
-  // ─── crew_list Tool (inline — lightweight) ──────────────────
-  pi.registerTool({
-    name: "crew_list",
-    label: "Crew List",
-    description: "List available subagent definitions and running subagents.",
-    parameters: Type.Object({}),
-
-    async execute(_toolCallId, _params, _signal, _onUpdate, _ctx) {
-      const registry = getAgentRegistry();
-      const available = registry.getAll();
-      const running = registry.getRunning();
-
-      let text = "## Available Subagents\n\n";
-      if (available.length === 0) {
-        text += "None found.\n";
-      } else {
-        for (const agent of available) {
-          text += `- **${agent.name}**: ${agent.description}`;
-          text += ` (source: ${agent.source}`;
-          if (agent.model) text += `, model: ${agent.model}`;
-          if (agent.tools) text += `, tools: ${agent.tools.join(", ")}`;
-          if (agent.extensions.length > 0) {
-            text += `, extensions: ${agent.extensions.map((e) => e.value).join(", ")}`;
-          }
-          text += ")\n";
-        }
-      }
-
-      text += "\n## Running Subagents\n\n";
-      if (running.length === 0) {
-        text += "None.\n";
-      } else {
-        for (const h of running) {
-          text += `- **${h.agentName}** (${h.id}): ${h.status}`;
-          text += `, ${h.turns} turns`;
-          if (h.usage.cost > 0) text += `, $${h.usage.cost.toFixed(4)}`;
-          text += "\n";
-        }
-      }
-
-      return {
-        content: [{ type: "text", text }],
-        details: {
-          available: available.map((a) => ({ name: a.name, description: a.description })),
-          running: running.map((h) => ({ id: h.id, agent: h.agentName, status: h.status })),
-        },
-      };
-    },
-  });
+  registerCrewListTool(pi);
 
   // ─── Register Events ────────────────────────────────────────
   registerBlocker(pi);
