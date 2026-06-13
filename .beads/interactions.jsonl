@@ -1,0 +1,14 @@
+{"id":"int-3424197e","kind":"field_change","created_at":"2026-06-12T14:06:45.709288047Z","actor":"djs21","issue_id":"crew-of-pi-r3o.1","extra":{"field":"status","new_value":"in_progress","old_value":"open"}}
+{"id":"int-db2d6d06","kind":"field_change","created_at":"2026-06-12T14:11:31.040538388Z","actor":"djs21","issue_id":"crew-of-pi-r3o.1","extra":{"field":"status","new_value":"closed","old_value":"in_progress"}}
+{"id":"int-489deb25","kind":"field_change","created_at":"2026-06-12T14:11:31.459921119Z","actor":"djs21","issue_id":"crew-of-pi-r3o.2","extra":{"field":"status","new_value":"in_progress","old_value":"open"}}
+{"id":"int-82cb948f","kind":"field_change","created_at":"2026-06-12T14:14:09.967189408Z","actor":"djs21","issue_id":"crew-of-pi-r3o.2","extra":{"field":"status","new_value":"closed","old_value":"in_progress"}}
+{"id":"int-66869e69","kind":"field_change","created_at":"2026-06-12T14:14:10.375689294Z","actor":"djs21","issue_id":"crew-of-pi-r3o.3","extra":{"field":"status","new_value":"in_progress","old_value":"open"}}
+{"id":"int-bb354a44","kind":"field_change","created_at":"2026-06-12T14:18:00.914018765Z","actor":"djs21","issue_id":"crew-of-pi-r3o.3","extra":{"field":"status","new_value":"closed","old_value":"in_progress"}}
+{"id":"int-54d1fbf5","kind":"field_change","created_at":"2026-06-12T14:18:01.167849754Z","actor":"djs21","issue_id":"crew-of-pi-r3o.4","extra":{"field":"status","new_value":"in_progress","old_value":"open"}}
+{"id":"int-5a2b731f","kind":"field_change","created_at":"2026-06-12T14:20:57.43273346Z","actor":"djs21","issue_id":"crew-of-pi-r3o.4","extra":{"field":"status","new_value":"closed","old_value":"in_progress"}}
+{"id":"int-2cba2084","kind":"field_change","created_at":"2026-06-12T14:20:57.857753022Z","actor":"djs21","issue_id":"crew-of-pi-r3o.5","extra":{"field":"status","new_value":"in_progress","old_value":"open"}}
+{"id":"int-3b43a468","kind":"field_change","created_at":"2026-06-12T14:27:05.873785959Z","actor":"djs21","issue_id":"crew-of-pi-r3o.5","extra":{"field":"status","new_value":"closed","old_value":"in_progress"}}
+{"id":"int-5e9bc2c1","kind":"field_change","created_at":"2026-06-12T14:27:06.13371719Z","actor":"djs21","issue_id":"crew-of-pi-r3o.6","extra":{"field":"status","new_value":"in_progress","old_value":"open"}}
+{"id":"int-14230aa4","kind":"field_change","created_at":"2026-06-12T14:31:27.554254941Z","actor":"djs21","issue_id":"crew-of-pi-r3o.6","extra":{"field":"status","new_value":"closed","old_value":"in_progress"}}
+{"id":"int-35f60c24","kind":"field_change","created_at":"2026-06-12T14:31:27.812553348Z","actor":"djs21","issue_id":"crew-of-pi-r3o.7","extra":{"field":"status","new_value":"in_progress","old_value":"open"}}
+{"id":"int-78a2bce5","kind":"field_change","created_at":"2026-06-12T14:45:07.490025147Z","actor":"djs21","issue_id":"crew-of-pi-r3o.7","extra":{"field":"status","new_value":"closed","old_value":"in_progress"}}
