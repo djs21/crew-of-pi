@@ -318,10 +318,6 @@ export async function spawnSubagentProcess(
   }
 }
 
-// ─── Concurrency Limiter ────────────────────────────────────────
-
-const concurrencyTracker = new ConcurrencyTracker(MAX_CONCURRENCY);
-
 // ─── Async Spawn with Steering Delivery ─────────────────────────
 
 export function spawnSubagentAsync(
@@ -478,3 +474,7 @@ export class ConcurrencyTracker {
     }
   }
 }
+
+// ─── Concurrency Limiter ────────────────────────────────────────
+
+const concurrencyTracker = new ConcurrencyTracker(MAX_CONCURRENCY);
