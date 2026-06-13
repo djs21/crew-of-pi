@@ -5,6 +5,7 @@
 
 import type { AgentConfig, AgentScope, SubagentHandle } from "../../shared/types";
 import { discoverAgents } from "./agents.discovery";
+import { loadCrewConfig, applyConfigOverrides } from "./agents.config";
 
 /**
  * In-memory agent registry with running subagent tracking.
@@ -22,7 +23,15 @@ export class AgentRegistry {
     this.cwd = cwd;
     this.scope = scope;
     const result = discoverAgents(cwd, scope);
-    this.agents = result.agents;
+
+    // Apply config overrides (project overrides global)
+    const config = loadCrewConfig(cwd);
+    if (config && config.agents && Object.keys(config.agents).length > 0) {
+      this.agents = applyConfigOverrides(result.agents, config);
+    } else {
+      this.agents = result.agents;
+    }
+
     return this.agents;
   }
 
