@@ -3,30 +3,25 @@
  * Restores message bus state on session reload.
  */
 
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { getMessageBus } from "./comms.bus";
 import type { CommsMessage } from "./comms.types";
 
 /**
- * Save all current bus messages to session entries.
- */
-export function persistBusState(pi: ExtensionAPI): void {
-  const bus = getMessageBus();
-  const messages = bus.getHistory();
-
-  pi.appendEntry("crew-bus-state", {
-    messageCount: messages.length,
-    messages: messages.slice(-50), // Last 50 messages
-    savedAt: Date.now(),
-  });
-}
-
-/**
  * Restore bus state from session entries on startup.
+ * Scans session entries for "crew-bus-message" custom entries and
+ * injects them into the message bus without triggering subscribers.
  */
-export function restoreBusState(pi: ExtensionAPI): void {
-  // Bus state restoration happens via session_start event scanning
-  // Messages are re-hydrated from "crew-bus-message" entries
+export function restoreBusState(pi: ExtensionAPI, ctx: ExtensionContext): void {
+  const entries = ctx.sessionManager.getEntries();
+  const messages = loadPersistedMessages(entries);
+
+  if (messages.length === 0) return;
+
+  const bus = getMessageBus();
+  for (const msg of messages) {
+    bus.injectHistory(msg);
+  }
 }
 
 /**

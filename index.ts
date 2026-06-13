@@ -29,6 +29,7 @@ import { registerChainTool } from "./slices/chain/chain.tool";
 // ─── Comms ──────────────────────────────────────────────────────
 import { registerCommsRelay } from "./slices/comms/comms.relay";
 import { getMessageBus, resetMessageBus } from "./slices/comms/comms.bus";
+import { restoreBusState } from "./slices/comms/comms.persistence";
 
 // ─── Lifecycle ──────────────────────────────────────────────────
 import { registerAbortTool } from "./slices/lifecycle/lifecycle.abort";
@@ -72,6 +73,9 @@ export default function (pi: ExtensionAPI) {
       includeAgentExtensions: true,
       includeRules: true,
     });
+
+    // Restore message bus from previous session entries
+    restoreBusState(pi, ctx);
 
   });
 

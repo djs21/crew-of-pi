@@ -77,6 +77,17 @@ export class MessageBus {
   }
 
   /**
+   * Inject historical messages into the bus without notifying subscribers.
+   * Used during session restore to re-hydrate persisted messages.
+   */
+  injectHistory(message: CommsMessage): void {
+    this.messages.push(message);
+    // Update nextId so future sends don't collide
+    const num = parseInt(message.id.replace('msg-', ''), 10);
+    if (!isNaN(num) && num >= this.nextId) this.nextId = num + 1;
+  }
+
+  /**
    * Clear all messages.
    */
   clear(): void {

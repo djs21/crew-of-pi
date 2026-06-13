@@ -5,6 +5,7 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { getMessageBus } from "./comms.bus";
 import type { CommsMessage } from "./comms.types";
+import { persistMessage } from "./comms.persistence";
 
 /**
  * Register relay from message bus to main agent.
@@ -51,14 +52,7 @@ export function respondToSubagent(
   const sent = bus.send("main", subagentId, "response", message, inReplyTo);
 
   // Persist to session
-  pi.appendEntry("crew-bus-message", {
-    id: sent.id,
-    from: "main",
-    to: subagentId,
-    type: "response",
-    content: message,
-    timestamp: sent.timestamp,
-  });
+  persistMessage(pi, sent);
 
   return sent;
 }
@@ -68,14 +62,7 @@ export function respondToSubagent(
  */
 export function broadcastToAll(pi: ExtensionAPI, message: string): void {
   const bus = getMessageBus();
-  bus.send("main", "broadcast", "broadcast", message);
+  const sent = bus.send("main", "broadcast", "broadcast", message);
 
-  pi.appendEntry("crew-bus-message", {
-    id: `broadcast-${Date.now()}`,
-    from: "main",
-    to: "all",
-    type: "broadcast",
-    content: message,
-    timestamp: Date.now(),
-  });
+  persistMessage(pi, sent);
 }
