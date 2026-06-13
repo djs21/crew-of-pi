@@ -12,7 +12,7 @@ import * as fsPromises from "node:fs/promises";
 import type { Message } from "@earendil-works/pi-ai";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { AgentConfig, SubagentHandle, SubagentStatus, UsageStats } from "../../shared/types";
-import { generateId, INITIAL_USAGE } from "../../shared/types";
+import { generateId, INITIAL_USAGE, MAX_CONCURRENCY } from "../../shared/types";
 import { getPiInvocation, type StreamingResult } from "./spawn.types";
 import { syncWidgetFromRegistry } from "../widget/widget.updater";
 
@@ -318,6 +318,10 @@ export async function spawnSubagentProcess(
   }
 }
 
+// ─── Concurrency Limiter ────────────────────────────────────────
+
+const concurrencyTracker = new ConcurrencyTracker(MAX_CONCURRENCY);
+
 // ─── Async Spawn with Steering Delivery ─────────────────────────
 
 export function spawnSubagentAsync(
@@ -354,8 +358,9 @@ export function spawnSubagentAsync(
   // Update widget immediately after spawn
   syncWidgetFromRegistry(pi);
 
-  // Background async spawn (tidak await — non-blocking)
+  // Background async spawn with concurrency limit (tidak await — non-blocking)
   (async () => {
+    await concurrencyTracker.acquire();
     try {
       const result = await spawnSubagentProcess(agentConfig, task, signal, cwd);
       handle.status = result.handle.status;
@@ -419,6 +424,9 @@ export function spawnSubagentAsync(
         },
         { deliverAs: "steer", triggerTurn: true },
       );
+    }
+    } finally {
+      concurrencyTracker.release();
     }
   })();
 
