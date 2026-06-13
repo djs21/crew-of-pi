@@ -129,20 +129,6 @@ export interface BusEntry {
   data: Record<string, unknown>;
 }
 
-// ─── Blockers Types ─────────────────────────────────────────────
-
-export interface BlockPolicy {
-  blockedTools: string[];       // tool names to block (e.g., "write", "edit")
-  customMessage: string;        // message to show when blocked
-  allowBashReadOnly: boolean;   // allow bash if read-only command
-}
-
-export const DEFAULT_BLOCK_POLICY: BlockPolicy = {
-  blockedTools: ["write", "edit"],
-  customMessage: "Main agent is read-only. Delegate write/edit tasks to a 'worker' subagent via crew_spawn.",
-  allowBashReadOnly: true,
-};
-
 // ─── Prompt Types ───────────────────────────────────────────────
 
 export interface PromptInjectionConfig {
