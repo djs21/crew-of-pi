@@ -101,29 +101,32 @@ function buildSpawnArgs(
 
 // ─── JSON Line Parser ───────────────────────────────────────────
 
-let _lastProcessedLen = 0;
-let _pendingPartial = "";
+interface ParseState {
+  lastProcessedLen: number;
+  pendingPartial: string;
+}
 
 function parseJsonLines(
   buffer: string,
   currentResult: StreamingResult,
+  parseState: ParseState,
 ): void {
   // Only process new data since last call, prepend any pending partial line
-  let newData = _pendingPartial + buffer.slice(_lastProcessedLen);
-  _lastProcessedLen = buffer.length;
+  let newData = parseState.pendingPartial + buffer.slice(parseState.lastProcessedLen);
+  parseState.lastProcessedLen = buffer.length;
 
   // If newData doesn't end with newline, save the last incomplete line
   if (!newData.endsWith("\n")) {
     const lastNewline = newData.lastIndexOf("\n");
     if (lastNewline >= 0) {
-      _pendingPartial = newData.slice(lastNewline + 1);
+      parseState.pendingPartial = newData.slice(lastNewline + 1);
       newData = newData.slice(0, lastNewline + 1);
     } else {
-      _pendingPartial = newData;
+      parseState.pendingPartial = newData;
       return;
     }
   } else {
-    _pendingPartial = "";
+    parseState.pendingPartial = "";
   }
 
   const lines = newData.split("\n");
@@ -242,6 +245,9 @@ export async function spawnSubagentProcess(
 
     handle.status = "running";
 
+    // Per-process parse state — avoids race condition when multiple subagents run concurrently
+    const parseState: ParseState = { lastProcessedLen: 0, pendingPartial: "" };
+
     const exitCode = await new Promise<number>((resolve) => {
       const invocation = getPiInvocation(baseArgs);
       const proc = spawn(invocation.command, invocation.args, {
@@ -256,7 +262,7 @@ export async function spawnSubagentProcess(
 
       proc.stdout.on("data", (data: Buffer) => {
         buffer += data.toString();
-        parseJsonLines(buffer, streamingResult);
+        parseJsonLines(buffer, streamingResult, parseState);
       });
 
       proc.stderr.on("data", (data: Buffer) => {
@@ -264,7 +270,7 @@ export async function spawnSubagentProcess(
       });
 
       proc.on("close", (code) => {
-        if (buffer.trim()) parseJsonLines(buffer, streamingResult);
+        if (buffer.trim()) parseJsonLines(buffer, streamingResult, parseState);
         resolve(code ?? 0);
       });
 
