@@ -24,7 +24,7 @@ Slices are designed to be independently developable, testable, and removable by 
 2. **Shared types in `shared/types.ts`** — `AgentConfig`, `SubagentHandle`, `UsageStats`, `SpawnConfig`, `ChainConfig`, `SubagentMessage`, `WidgetEntry`. Each slice has its own `*.types.ts` for slice-private types.
 3. **Singleton access** — `AgentRegistry`, `MessageBus`, `WidgetStore` are singletons accessed via `get*()` functions. Reset on session shutdown.
 4. **Session persistence** — State stored via `pi.appendEntry()` with custom entry types: `crew-subagent-spawn`, `crew-subagent-result`, `crew-bus-message`, `crew-chain-step`.
-5. **Extension loading** — Subagents spawn with `--no-extensions` by default. Per-agent extensions load only when explicitly listed in frontmatter.
+5. **Extension loading** — Subagents load only extensions listed in their frontmatter, controlled via `extensionsOverride` filter in `DefaultResourceLoader`.
 6. **Concurrency limit** — Max `MAX_CONCURRENCY` (4) parallel subagent spawns via `ConcurrencyTracker` semaphore.
 
 ## Work Guidance
