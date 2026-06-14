@@ -158,6 +158,9 @@ function parseJsonLines(
             contextTokens: usage.totalTokens || 0,
             turns: fullResult.usage.turns + 1,
           };
+        } else {
+          // Always count turns even if usage stats absent (some API responses omit usage)
+          fullResult.usage = { ...fullResult.usage, turns: fullResult.usage.turns + 1 };
         }
         if (!fullResult.model && msg.model) fullResult.model = msg.model;
         if (msg.stopReason) fullResult.stopReason = msg.stopReason;
@@ -206,6 +209,7 @@ export async function spawnSubagentProcess(
   signal: AbortSignal | undefined,
   cwd: string,
   extraSpawnArgs?: string[],
+  onProgress?: (turns: number, status: SubagentStatus, usage: UsageStats) => void,
 ): Promise<SpawnSubagentResult> {
   const id = generateId(agentConfig.name);
 
@@ -270,6 +274,10 @@ export async function spawnSubagentProcess(
       proc.stdout.on("data", (data: Buffer) => {
         buffer += data.toString();
         parseJsonLines(buffer, streamingResult, parseState);
+        // Live sync: propagate turns/usage to registry + widget during execution
+        if (onProgress && streamingResult.usage.turns > 0) {
+          onProgress(streamingResult.usage.turns, "running", streamingResult.usage);
+        }
       });
 
       proc.stderr.on("data", (data: Buffer) => {
@@ -279,6 +287,11 @@ export async function spawnSubagentProcess(
       proc.on("close", (code) => {
         if (buffer.trim()) parseJsonLines(buffer, streamingResult, parseState);
         handle.proc = undefined;
+        // Final progress push before resolve
+        if (onProgress) {
+          const finalStatus = isFailedResult(streamingResult) ? "failed" : "completed";
+          onProgress(streamingResult.usage.turns, finalStatus, streamingResult.usage);
+        }
         resolve(code ?? 0);
       });
 
@@ -365,11 +378,23 @@ export function spawnSubagentAsync(
   // Background async spawn with concurrency limit (tidak await — non-blocking)
   (async () => {
     await concurrencyTracker.acquire();
+    // Mark as running now that process is actually starting
+    handle.status = "running";
+    syncWidgetFromRegistry(pi);
     try {
-      const result = await spawnSubagentProcess(agentConfig, task, signal, cwd);
+      const result = await spawnSubagentProcess(
+        agentConfig, task, signal, cwd, undefined,
+        // Live progress callback — update registry handle + widget during execution
+        (turns, _status, usage) => {
+          handle.turns = turns;
+          handle.usage = usage;
+          syncWidgetFromRegistry(pi);
+        },
+      );
       handle.status = result.handle.status;
       handle.turns = result.handle.turns;
       handle.proc = result.handle.proc;
+      handle.usage = result.streamingResult.usage;
 
       // Persist result
       pi.appendEntry("crew-subagent-result", {

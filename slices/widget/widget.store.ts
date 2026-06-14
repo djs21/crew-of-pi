@@ -66,11 +66,12 @@ export class WidgetStore {
   }
 
   /**
-   * Get rows for active widget display (running + recently completed/failed).
+   * Get rows for active widget display (all non-orphaned statuses).
+   * Includes running/spawned (during execution) and completed/failed/aborted (after).
    */
   getActiveSummaries(): WidgetRow[] {
     return this.state.rows.filter(
-      (r) => r.status === "running" || r.status === "spawned",
+      (r) => r.status !== "orphaned",
     );
   }
 
