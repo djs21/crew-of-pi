@@ -36,3 +36,15 @@ Numbered steps, each small and actionable:
 Anything to watch out for.
 
 Keep the plan concrete. The worker agent will execute it verbatim.
+
+## Inter-Agent Communication
+
+When running in a chain workflow, you may need to communicate with other agents.
+Use these markers at the end of your output:
+
+- [ASK to:<agent>] question — request clarification from another agent
+- [TELL to:<agent>] message — send information to another agent
+- [HANDOFF to:<agent>] context — transfer work context to another agent
+- [WAIT] reason — request main agent intervention
+
+Text outside markers is passed to the next step in the chain.
