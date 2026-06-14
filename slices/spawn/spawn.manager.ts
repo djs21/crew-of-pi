@@ -347,6 +347,7 @@ export function spawnSubagentAsync(
   task: string,
   signal: AbortSignal | undefined,
   cwd: string,
+  ownerSession?: string,
 ): SubagentHandle {
   const id = generateId(agentConfig.name);
 
@@ -360,6 +361,7 @@ export function spawnSubagentAsync(
     spawnedAt: Date.now(),
     turns: 0,
     usage: { ...INITIAL_USAGE },
+    ownerSession,
   };
 
   // Persist spawn state
@@ -370,6 +372,7 @@ export function spawnSubagentAsync(
     status: "running",
     spawnedAt: Date.now(),
     model: agentConfig.model,
+    ownerSession,
   });
 
   // Update widget immediately after spawn

@@ -19,14 +19,24 @@ export function registerDoneTool(pi: ExtensionAPI): void {
     description: "Close an interactive subagent session when you no longer need it.",
     parameters: DoneParams,
 
-    async execute(_toolCallId, params, _signal, _onUpdate, _ctx: ExtensionContext) {
+    async execute(_toolCallId, params, _signal, _onUpdate, ctx: ExtensionContext) {
       const registry = getAgentRegistry();
+      const callerSessionId = ctx.sessionManager.getSessionId();
       const handle = registry.getRunningById(params.subagent_id);
 
       if (!handle) {
         return {
           content: [{ type: "text", text: `No running subagent found with id: ${params.subagent_id}` }],
           details: { error: "not found" },
+          isError: true,
+        };
+      }
+
+      // Validate session ownership
+      if (handle.ownerSession && handle.ownerSession !== callerSessionId) {
+        return {
+          content: [{ type: "text", text: `Subagent ${params.subagent_id} belongs to a different session.` }],
+          details: { error: "foreign session" },
           isError: true,
         };
       }

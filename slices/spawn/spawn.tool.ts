@@ -74,7 +74,8 @@ export function registerSpawnTool(pi: ExtensionAPI): void {
       }
 
       // Spawn async (non-blocking)
-      const handle = spawnSubagentAsync(pi, agentConfig, params.task, signal, cwd);
+      const ownerSession = ctx.sessionManager.getSessionId();
+      const handle = spawnSubagentAsync(pi, agentConfig, params.task, signal, cwd, ownerSession);
 
       // Register with registry and update widget
       registry.registerRunning(handle);

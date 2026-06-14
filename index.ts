@@ -82,7 +82,17 @@ export default function (pi: ExtensionAPI) {
   });
 
   // ─── Init: Session Shutdown (cleanup) ───────────────────────
-  pi.on("session_shutdown", async () => {
+  pi.on("session_shutdown", async (event, ctx) => {
+    const sessionId = ctx.sessionManager.getSessionId();
+    const registry = getAgentRegistry();
+
+    // Abort all running subagents owned by this session
+    for (const handle of registry.getRunning()) {
+      if (handle.ownerSession === sessionId && handle.pid) {
+        try { process.kill(handle.pid, "SIGTERM"); } catch { /* already dead */ }
+      }
+    }
+
     resetAgentRegistry();
     resetMessageBus();
     resetWidgetStore();
