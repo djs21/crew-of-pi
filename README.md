@@ -15,7 +15,7 @@ Spawn isolated subagents that work in parallel while your main session stays res
 - **🔒 Main agent is read-only** — Main agent cannot `write` or `edit` files. All code changes are delegated to cheap `worker` subagents. Saves API costs.
 - **⚡ Async non-blocking** — Subagents run in the background. Results are delivered as steering messages. Main agent stays interactive.
 - **📋 Subagent listing** — `crew_list` shows available agent definitions and running subagents with status, turns, and costs.
-- **💬 Inter-agent communication** — Subagents can talk to each other via a message bus. All communication is relayed to the main agent so it never loses context.
+- **💬 Inter-agent communication** — Subagents communicate via a message bus using text markers (`[ASK to:agent]`, `[TELL to:agent]`, `[HANDOFF to:agent]`, `[WAIT]`). Chain orchestrator parses markers and routes them through the bus. All communication is relayed to the main agent so it never loses context.
 - **🤖 Automatic delegation** — System prompt injection makes the main agent aware of its crew. It decides: `scout` for recon, `planner` for planning, `worker` for code, `reviewer` for review.
 - **🔌 Per-agent extensions** — Each subagent definition can load custom extensions (path-based or `pi install` packages). Different subagents get different capabilities.
 - **⚙️ Config loader** — JSON-based agent overrides via `crew-of-pi.json` (`.pi/crew-of-pi.json` overrides `~/.pi/agent/crew-of-pi.json`).
@@ -23,7 +23,7 @@ Spawn isolated subagents that work in parallel while your main session stays res
 - **📊 TUI status widget** — Live widget shows running subagents with real-time turns, token usage, and final status (completed/failed/aborted persist after finish).
 - **🔐 Session ownership** — Each subagent is tracked to its spawning session. `crew_abort`, `crew_respond`, and `crew_done` validate ownership — preventing cross-session interference. `session_shutdown` aborts only owned agents.
 - **⚠ Agent validation** — Invalid model format (`provider/model-id` required), unknown thinking levels, and missing frontmatter fields are caught at discovery and displayed as UI notifications.
-- **🔗 Chain workflows** — Sequential multi-agent pipelines with `{previous}` placeholder injection.
+- **🔗 Chain workflows** — Sequential multi-agent pipelines with `{previous}` placeholder injection. Chain steps appear in the TUI widget with live turn/context-token progress. Subagents can communicate across steps via marker protocol routed through the message bus.
 
 ---
 
@@ -140,6 +140,19 @@ The main agent can spawn multiple subagents in parallel. Each runs independently
 
 Each step's output replaces `{previous}` in the next step's task.
 
+Chain steps appear in the TUI widget with live progress (turns, context tokens, status).
+
+**Inter-agent markers in chain:** Subagents can communicate across steps using text markers in their output:
+
+```
+[ASK to:main] Should I use JWT or OAuth2 for this endpoint?
+[TELL to:planner] API endpoints found: GET /users, POST /users, GET /users/:id
+[HANDOFF to:worker] Full auth module spec ready for implementation
+[WAIT] Need approval before proceeding with the database migration
+```
+
+The chain orchestrator strips markers from the `{previous}` pipeline and routes them through the message bus to the target agent. Messages addressed to a step are injected into that step's task as context.
+
 ### Check Status
 
 ```
@@ -203,6 +216,16 @@ Execute sequential multi-agent workflow.
 |-----------|------|----------|-------------|
 | `chain` | array | ✅ | Array of `{ agent, task, cwd? }` steps |
 | `stopOnError` | boolean | ❌ | Stop chain on step failure (default: true) |
+
+Each step's output is injected into the next via `{previous}`. Chain steps appear in the TUI widget with live turn/context-token progress.
+
+**Marker protocol:** Subagents can use text markers for cross-step communication:
+- `[ASK to:<agent>] question` — request clarification
+- `[TELL to:<agent>] message` — send information
+- `[HANDOFF to:<agent>] context` — transfer work context
+- `[WAIT] reason` — request main agent intervention
+
+Markers are parsed by the orchestrator, routed through the message bus, and relayed to the main agent as steering messages. Text outside markers passes to the next step via `{previous}`.
 
 **Returns after all steps complete:**
 ```
@@ -436,6 +459,8 @@ When subagents are running, a live status widget appears in the TUI:
 
 **Widget updates in real-time during execution and keeps all statuses visible:**
 
+**Parallel spawns (crew_spawn):**
+
 ```
 ┌─ Crew ──────────────────────────────────────────────────┐
 │ ⏳ scout-abc123    [running]    2 turns   ctx:4.2k       │
@@ -444,6 +469,8 @@ When subagents are running, a live status widget appears in the TUI:
 │ ❌ reviewer-jkl0   [aborted]                              │
 └─────────────────────────────────────────────────────────┘
 ```
+
+**Chain workflow (crew_chain):** Steps appear sequentially with live progress — turns and context tokens update in real-time. Previous steps persist with ✅/❌ so you can see the full pipeline state.
 
 **Widget updates automatically on:**
 - Subagent spawned → row added (⏳ 0 turns)
