@@ -79,19 +79,20 @@ function createSubagentResourceLoader(
     // Filter out crew-of-pi itself to prevent recursive spawns
     extensionsOverride: (base) => {
       if (agentConfig.extensions.length === 0) {
-        // No extensions listed → strip all
+        // No extensions listed → strip all (opt-in default)
         return { ...base, extensions: [] };
       }
-      // Opt-in: keep only extensions matching the agent's list
+      // Opt-in: keep only base extensions matching the agent's list
       return {
         ...base,
         extensions: base.extensions.filter((ext) => {
-          // Always filter out crew-of-pi
+          // Always filter out crew-of-pi itself
           if (ext.resolvedPath.startsWith(infra.extensionDir)) return false;
-          // Only include if explicitly in agent's extensions list
+          // Match by exact resolved path, or by extension name in path
+          // (e.g. "git-checkpoint" matches .../extensions/git-checkpoint/index.ts)
           return agentConfig.extensions.some((agentExt) =>
             ext.resolvedPath === agentExt.resolved ||
-            ext.resolvedPath.endsWith(agentExt.value),
+            ext.resolvedPath.includes(`/${agentExt.value}/`),
           );
         }),
       };
