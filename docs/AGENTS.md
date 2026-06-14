@@ -11,6 +11,7 @@ Working documents for crew-of-pi development: architecture plans, audit findings
 | **plan.md** | Original work plan — architecture, implementation details, timeline, design decisions |
 | **findings-2025-06-13.md** | Codebase audit results — 12 findings, 9 fixed, 1 skipped |
 | **findings-2025-06-14-pi-crew-comparison.md** | Komparasi crew-of-pi vs pi-crew (original) — 13 temuan, 2 HIGH, 3 MEDIUM, 8 LOW/NOTE |
+| **plan-migrate-create-agent-session.md** | Migration plan: child_process → createAgentSession (gap #9 fix) |
 
 ## Local Contracts
 
