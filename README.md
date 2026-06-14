@@ -19,7 +19,9 @@ Spawn isolated subagents that work in parallel while your main session stays res
 - **🔌 Per-agent extensions** — Each subagent definition can load custom extensions (path-based or `pi install` packages). Different subagents get different capabilities.
 - **⚙️ Config loader** — JSON-based agent overrides via `crew-of-pi.json` (`.pi/crew-of-pi.json` overrides `~/.pi/agent/crew-of-pi.json`).
 - **💾 Session persistence** — All subagent state persists across `/resume`, `/reload`, and session restarts.
-- **📊 TUI status widget** — Live widget shows running subagents with status, turns, and token usage.
+- **📊 TUI status widget** — Live widget shows running subagents with real-time turns, token usage, and final status (completed/failed/aborted persist after finish).
+- **🔐 Session ownership** — Each subagent is tracked to its spawning session. `crew_abort`, `crew_respond`, and `crew_done` validate ownership — preventing cross-session interference. `session_shutdown` aborts only owned agents.
+- **⚠ Agent validation** — Invalid model format (`provider/model-id` required), unknown thinking levels, and missing frontmatter fields are caught at discovery and displayed as UI notifications.
 - **🔗 Chain workflows** — Sequential multi-agent pipelines with `{previous}` placeholder injection.
 
 ---
@@ -430,20 +432,21 @@ Research workflow — scout → researcher.
 
 When subagents are running, a live status widget appears in the TUI:
 
+**Widget updates in real-time during execution and keeps all statuses visible:**
+
 ```
 ┌─ Crew ──────────────────────────────────────────────────┐
-│ 🟢 scout-abc123    [running]   2 turns   ctx:4.2k       │
-│ 🟢 worker-def456   [running]   5 turns   ctx:12.1k      │
-│ ✅ planner-ghi789  [done]      3 turns   $0.042         │
-│ ❌ reviewer-jkl0   [aborted]                             │
-│ ─── 2 running, 4 total ───                              │
+│ ⏳ scout-abc123    [running]    2 turns   ctx:4.2k       │
+│ ⏳ worker-def456   [running]    5 turns   ctx:12.1k      │
+│ ✅ planner-ghi789  [completed]  3 turns   $0.042         │
+│ ❌ reviewer-jkl0   [aborted]                              │
 └─────────────────────────────────────────────────────────┘
 ```
 
 **Widget updates automatically on:**
-- Subagent spawned → row added
-- Subagent completed → status updated with cost
-- Subagent failed/aborted → error status
+- Subagent spawned → row added (⏳ 0 turns)
+- Each turn during execution → turns + context tokens update live
+- Subagent completed/failed/aborted → status icon updates, row remains visible
 - Session reload → restored from session entries
 
 ---
@@ -557,6 +560,7 @@ The main agent only does **thinking & orchestration** (reading codebase, plannin
 Run `crew_list` to see available agents. If a custom agent isn't showing:
 - Check the file is in `.pi/agents/` or `~/.pi/agent/agents/`
 - Verify the `.md` file has valid YAML frontmatter with `name` and `description`
+- Check for UI notifications at session start — invalid model format, unknown thinking levels, or whitespace in agent names will show warnings
 - Run `/reload` if you just added the file
 
 ### Subagent seems stuck
