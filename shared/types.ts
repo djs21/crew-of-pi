@@ -34,6 +34,12 @@ export interface AgentConfig {
 export interface AgentDiscoveryResult {
   agents: AgentConfig[];
   projectAgentsDir: string | null;
+  warnings: AgentDiscoveryWarning[];
+}
+
+export interface AgentDiscoveryWarning {
+  filePath: string;
+  message: string;
 }
 
 // ─── Spawn Types ────────────────────────────────────────────────

@@ -9,9 +9,50 @@ import * as path from "node:path";
 import {
   getAgentDir,
 } from "@earendil-works/pi-coding-agent";
-import type { AgentConfig, AgentExtensionRef, AgentDiscoveryResult, AgentScope } from "../../shared/types";
+import type { AgentConfig, AgentDiscoveryResult, AgentDiscoveryWarning, AgentExtensionRef, AgentScope } from "../../shared/types";
 import type { FrontmatterFields } from "./agents.types";
 import { parseFrontmatter } from "./agents.frontmatter";
+
+// ─── Validation ─────────────────────────────────────────────────
+
+const VALID_THINKING_LEVELS = new Set([
+  "off", "minimal", "low", "medium", "high", "xhigh",
+]);
+
+function warn(filePath: string, message: string): AgentDiscoveryWarning {
+  return { filePath, message };
+}
+
+/**
+ * Validate model string format: must be "provider/model-id" with exactly one slash.
+ */
+function parseModel(raw: unknown): { model?: string; warning?: AgentDiscoveryWarning } {
+  if (typeof raw !== "string" || !raw.includes("/")) {
+    if (typeof raw === "string" && raw.length > 0) {
+      return { warning: warn("", `Invalid model format "${raw}" (expected "provider/model-id"), ignoring`) };
+    }
+    return {};
+  }
+  const slashIdx = raw.indexOf("/");
+  const provider = raw.slice(0, slashIdx).trim();
+  const modelId = raw.slice(slashIdx + 1).trim();
+  if (!provider || !modelId) {
+    return { warning: warn("", `Invalid model format "${raw}" (expected "provider/model-id"), ignoring`) };
+  }
+  return { model: raw };
+}
+
+/**
+ * Validate thinking level.
+ */
+function parseThinking(raw: unknown): { thinking?: string; warning?: AgentDiscoveryWarning } {
+  if (raw === undefined || raw === null) return {};
+  if (typeof raw !== "string") return {};
+  if (!VALID_THINKING_LEVELS.has(raw)) {
+    return { warning: warn("", `Unknown thinking level "${raw}", ignoring`) };
+  }
+  return { thinking: raw };
+}
 
 // ─── Extension Resolver ─────────────────────────────────────────
 
@@ -68,41 +109,92 @@ export interface RawAgentDoc {
 
 /**
  * Load agent config from a parsed .md file.
+ * Returns null if required fields missing; collects warnings for invalid optional fields.
  */
-export function loadAgentFromDoc(doc: RawAgentDoc): AgentConfig | null {
+export function loadAgentFromDoc(doc: RawAgentDoc): { agent: AgentConfig | null; warnings: AgentDiscoveryWarning[] } {
   const fm = doc.frontmatter;
+  const filePath = doc.filePath;
+  const warnings: AgentDiscoveryWarning[] = [];
 
-  if (!fm.name || !fm.description) return null;
+  if (!fm.name || !fm.description) {
+    if (fm.name) {
+      warnings.push(warn(filePath, `Subagent "${fm.name}": missing required field "description", skipping`));
+    } else {
+      warnings.push(warn(filePath, "Missing required fields (name + description), skipping"));
+    }
+    return { agent: null, warnings };
+  }
 
-  const tools = fm.tools
-    ?.split(",")
-    .map((t: string) => t.trim())
-    .filter(Boolean);
+  // Validate name: no whitespace
+  if (/\s/.test(fm.name)) {
+    warnings.push(warn(filePath, `Subagent name "${fm.name}" contains whitespace, skipping. Use "-" instead.`));
+    return { agent: null, warnings };
+  }
 
-  const skills = fm.skills
-    ?.split(",")
-    .map((s: string) => s.trim())
-    .filter(Boolean);
+  // Model validation
+  const { model, warning: modelWarning } = parseModel(fm.model);
+  if (modelWarning) {
+    modelWarning.filePath = filePath;
+    warnings.push(modelWarning);
+  }
 
-  const agentDir = path.dirname(doc.filePath);
+  // Thinking validation
+  const { thinking, warning: thinkingWarning } = parseThinking(fm.thinking);
+  if (thinkingWarning) {
+    thinkingWarning.filePath = filePath;
+    warnings.push(thinkingWarning);
+  }
+
+  // Tools — handle both string and YAML array from SDK parser
+  const rawTools = fm.tools;
+  let tools: string[] | undefined;
+  if (typeof rawTools === "string") {
+    tools = rawTools.split(",").map((t: string) => t.trim()).filter(Boolean);
+  } else if (Array.isArray(rawTools)) {
+    tools = rawTools.map((t: unknown) => String(t).trim()).filter(Boolean);
+  }
+
+  // Skills — same as tools
+  const rawSkills = fm.skills;
+  let skills: string[] | undefined;
+  if (typeof rawSkills === "string") {
+    skills = rawSkills.split(",").map((s: string) => s.trim()).filter(Boolean);
+  } else if (Array.isArray(rawSkills)) {
+    skills = rawSkills.map((s: unknown) => String(s).trim()).filter(Boolean);
+  }
+
+  // Extensions — handle YAML array from SDK
+  const rawExtensions = fm.extensions;
+  const extensionsList: string[] = Array.isArray(rawExtensions)
+    ? rawExtensions.map((e: unknown) => String(e).trim()).filter(Boolean)
+    : [];
+
+  const agentDir = path.dirname(filePath);
   const extensions = resolveExtensions(
-    Array.isArray(fm.extensions) ? fm.extensions : undefined,
+    extensionsList.length > 0 ? extensionsList : undefined,
     agentDir,
   );
 
+  // Booleans — SDK returns native boolean, handle both cases
+  const interactive = fm.interactive === true || fm.interactive === "true";
+  const compaction = fm.compaction !== false && fm.compaction !== "false";
+
   return {
-    name: fm.name,
-    description: fm.description,
-    tools: tools && tools.length > 0 ? tools : undefined,
-    model: fm.model || undefined,
-    thinking: fm.thinking || undefined,
-    skills: skills && skills.length > 0 ? skills : undefined,
-    systemPrompt: doc.body,
-    source: doc.source,
-    filePath: doc.filePath,
-    extensions,
-    interactive: fm.interactive === true || fm.interactive === "true",
-    compaction: fm.compaction !== false && fm.compaction !== "false",
+    agent: {
+      name: fm.name,
+      description: fm.description,
+      tools: tools && tools.length > 0 ? tools : undefined,
+      model: model || undefined,
+      thinking: thinking || undefined,
+      skills: skills && skills.length > 0 ? skills : undefined,
+      systemPrompt: doc.body,
+      source: doc.source,
+      filePath,
+      extensions,
+      interactive,
+      compaction,
+    },
+    warnings,
   };
 }
 
@@ -131,16 +223,17 @@ function findNearestProjectAgentsDir(cwd: string): string | null {
 function loadAgentsFromDir(
   dir: string,
   source: AgentConfig["source"],
-): AgentConfig[] {
+): { agents: AgentConfig[]; warnings: AgentDiscoveryWarning[] } {
   const agents: AgentConfig[] = [];
+  const warnings: AgentDiscoveryWarning[] = [];
 
-  if (!fs.existsSync(dir)) return agents;
+  if (!fs.existsSync(dir)) return { agents, warnings };
 
   let entries: fs.Dirent[];
   try {
     entries = fs.readdirSync(dir, { withFileTypes: true });
   } catch {
-    return agents;
+    return { agents, warnings };
   }
 
   for (const entry of entries) {
@@ -152,15 +245,17 @@ function loadAgentsFromDir(
     try {
       content = fs.readFileSync(filePath, "utf-8");
     } catch {
+      warnings.push(warn(filePath, `Could not read file, skipping`));
       continue;
     }
 
     const { frontmatter, body } = parseFrontmatter(content);
-    const agent = loadAgentFromDoc({ frontmatter, body, filePath, source });
-    if (agent) agents.push(agent);
+    const result = loadAgentFromDoc({ frontmatter, body, filePath, source });
+    warnings.push(...result.warnings);
+    if (result.agent) agents.push(result.agent);
   }
 
-  return agents;
+  return { agents, warnings };
 }
 
 // ─── Bundled Agents ─────────────────────────────────────────────
@@ -171,8 +266,8 @@ export function setBundledAgentsDir(dir: string) {
   bundledAgentsDir = dir;
 }
 
-function loadBundledAgents(): AgentConfig[] {
-  if (!bundledAgentsDir) return [];
+function loadBundledAgents(): { agents: AgentConfig[]; warnings: AgentDiscoveryWarning[] } {
+  if (!bundledAgentsDir) return { agents: [], warnings: [] };
   return loadAgentsFromDir(bundledAgentsDir, "bundled");
 }
 
@@ -185,35 +280,41 @@ function loadBundledAgents(): AgentConfig[] {
 export function discoverAgents(cwd: string, scope: AgentScope): AgentDiscoveryResult {
   const userDir = path.join(getAgentDir(), "agents");
   const projectAgentsDir = findNearestProjectAgentsDir(cwd);
+  const allWarnings: AgentDiscoveryWarning[] = [];
 
-  const userAgents: AgentConfig[] = scope !== "project"
+  const userResult = scope !== "project"
     ? loadAgentsFromDir(userDir, "user")
-    : [];
-  const projectAgents: AgentConfig[] = scope !== "user" && projectAgentsDir
+    : { agents: [], warnings: [] as AgentDiscoveryWarning[] };
+  allWarnings.push(...userResult.warnings);
+
+  const projectResult = scope !== "user" && projectAgentsDir
     ? loadAgentsFromDir(projectAgentsDir, "project")
-    : [];
-  const bundledAgents: AgentConfig[] = scope !== "user" && scope !== "project"
+    : { agents: [], warnings: [] as AgentDiscoveryWarning[] };
+  allWarnings.push(...projectResult.warnings);
+
+  const bundledResult = scope !== "user" && scope !== "project"
     ? loadBundledAgents()
-    : [];
+    : { agents: [], warnings: [] as AgentDiscoveryWarning[] };
+  allWarnings.push(...bundledResult.warnings);
 
   // Merge with priority: project > user > bundled
   const agentMap = new Map<string, AgentConfig>();
 
   // Bundled first (lowest priority)
-  for (const agent of bundledAgents) {
+  for (const agent of bundledResult.agents) {
     agentMap.set(agent.name, agent);
   }
 
   // User overrides bundled
   if (scope !== "project") {
-    for (const agent of userAgents) {
+    for (const agent of userResult.agents) {
       agentMap.set(agent.name, agent);
     }
   }
 
   // Project overrides user
   if (scope !== "user" && projectAgentsDir) {
-    for (const agent of projectAgents) {
+    for (const agent of projectResult.agents) {
       agentMap.set(agent.name, agent);
     }
   }
@@ -221,6 +322,7 @@ export function discoverAgents(cwd: string, scope: AgentScope): AgentDiscoveryRe
   return {
     agents: Array.from(agentMap.values()),
     projectAgentsDir,
+    warnings: allWarnings,
   };
 }
 

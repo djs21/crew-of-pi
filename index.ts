@@ -79,6 +79,11 @@ export default function (pi: ExtensionAPI) {
     // Restore message bus from previous session entries
     restoreBusState(pi, ctx);
 
+    // Display discovery warnings as notifications
+    for (const warning of registry.getUnshownWarnings()) {
+      ctx.ui.notify(`${warning.message} (${warning.filePath})`, "error");
+    }
+
   });
 
   // ─── Init: Session Shutdown (cleanup) ───────────────────────

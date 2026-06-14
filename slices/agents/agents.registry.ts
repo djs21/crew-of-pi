@@ -3,7 +3,7 @@
  * Refreshed on session_start and on demand.
  */
 
-import type { AgentConfig, AgentScope, SubagentHandle } from "../../shared/types";
+import type { AgentConfig, AgentDiscoveryWarning, AgentScope, SubagentHandle } from "../../shared/types";
 import { discoverAgents } from "./agents.discovery";
 import { loadCrewConfig, applyConfigOverrides } from "./agents.config";
 
@@ -13,6 +13,8 @@ import { loadCrewConfig, applyConfigOverrides } from "./agents.config";
 export class AgentRegistry {
   private agents: AgentConfig[] = [];
   private runningAgents: Map<string, SubagentHandle> = new Map();
+  private discoveryWarnings: AgentDiscoveryWarning[] = [];
+  private shownWarnings: Set<string> = new Set();
   private cwd: string = "";
   private scope: AgentScope = "user";
 
@@ -23,6 +25,9 @@ export class AgentRegistry {
     this.cwd = cwd;
     this.scope = scope;
     const result = discoverAgents(cwd, scope);
+
+    // Collect discovery warnings
+    this.discoveryWarnings = result.warnings;
 
     // Apply config overrides (project overrides global)
     const config = loadCrewConfig(cwd);
@@ -113,6 +118,26 @@ export class AgentRegistry {
    */
   clear(): void {
     this.runningAgents.clear();
+  }
+
+  /**
+   * Get all discovery warnings (includes already-shown).
+   */
+  getDiscoveryWarnings(): AgentDiscoveryWarning[] {
+    return this.discoveryWarnings;
+  }
+
+  /**
+   * Get warnings that haven't been shown yet, and mark them as shown.
+   */
+  getUnshownWarnings(): AgentDiscoveryWarning[] {
+    const unshown = this.discoveryWarnings.filter((w) => {
+      const key = `${w.filePath}:${w.message}`;
+      if (this.shownWarnings.has(key)) return false;
+      this.shownWarnings.add(key);
+      return true;
+    });
+    return unshown;
   }
 }
 
