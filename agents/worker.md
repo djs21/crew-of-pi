@@ -2,7 +2,7 @@
 name: worker
 description: General-purpose subagent with full write capabilities. Use for implementing code changes.
 tools: read, write, edit, grep, find, ls, bash
-model: openrouter/deepseek/deepseek-v4-flash
+model: opencode/deepseek-v4-flash-free
 interactive: false
 extensions: []
 ---

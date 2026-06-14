@@ -2,7 +2,7 @@
 name: planner
 description: Creates implementation plans from context and requirements. Read-only. Does not write code.
 tools: read, grep, find, ls
-model: openrouter/deepseek/deepseek-v4-flash 
+model: claudinio/claudinio 
 interactive: false
 extensions: []
 ---

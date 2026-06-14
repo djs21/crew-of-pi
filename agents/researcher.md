@@ -2,7 +2,7 @@
 name: researcher
 description: Deep codebase research and analysis. Read-only. For understanding architecture, patterns, and dependencies.
 tools: read, grep, find, ls, bash
-model: openrouter/deepseek/deepseek-v4-flash
+model: claudinio/claudinio 
 interactive: false
 extensions: []
 ---
