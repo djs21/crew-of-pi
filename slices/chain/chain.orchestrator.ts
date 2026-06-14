@@ -75,7 +75,7 @@ export async function executeChain(options: ChainExecutionOptions): Promise<Chai
     }
 
     // Spawn the subagent (blocking per step — chain is sequential)
-    const result = await spawnSubagentProcess(
+    const spawnResult = await spawnSubagentProcess(
       agentConfig,
       taskWithContext,
       signal,
@@ -86,10 +86,10 @@ export async function executeChain(options: ChainExecutionOptions): Promise<Chai
       step: i + 1,
       agent: step.agent,
       task: taskWithContext,
-      output: result.output,
-      exitCode: result.streamingResult.exitCode,
-      turns: result.handle.turns,
-      errorMessage: result.streamingResult.errorMessage,
+      output: spawnResult.output,
+      exitCode: spawnResult.handle.status === "failed" || spawnResult.handle.status === "aborted" ? 1 : 0,
+      turns: spawnResult.handle.turns,
+      errorMessage: spawnResult.handle.status === "failed" ? (spawnResult.output || "(failed)") : undefined,
     };
 
     progress.results.push(stepResult);
@@ -105,12 +105,12 @@ export async function executeChain(options: ChainExecutionOptions): Promise<Chai
       chainId,
       step: i + 1,
       agent: step.agent,
-      output: result.output,
-      exitCode: result.streamingResult.exitCode,
+      output: spawnResult.output,
+      status: spawnResult.handle.status,
     });
 
     // Handle failure
-    if (result.handle.status === "failed" || result.handle.status === "aborted") {
+    if (spawnResult.handle.status === "failed" || spawnResult.handle.status === "aborted") {
       if (stopOnError) {
         progress.status = "failed";
         break;
@@ -118,7 +118,7 @@ export async function executeChain(options: ChainExecutionOptions): Promise<Chai
     }
 
     // Pass output to next step
-    previousOutput = result.output;
+    previousOutput = spawnResult.output;
   }
 
   // Mark completed if still running
