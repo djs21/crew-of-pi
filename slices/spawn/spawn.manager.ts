@@ -73,16 +73,26 @@ function createSubagentResourceLoader(
   cwd: string,
   infra: { agentDir: string; extensionDir: string },
 ): DefaultResourceLoader {
+  // Collect additional extension paths from agent config
+  // (custom paths not in standard ~/.pi/agent/extensions/ or .pi/extensions/)
+  const additionalPaths: string[] = [];
+  for (const ext of agentConfig.extensions) {
+    if (ext.type === "path" && ext.resolved) {
+      additionalPaths.push(ext.resolved);
+    }
+  }
+
   return new DefaultResourceLoader({
     cwd,
     agentDir: infra.agentDir,
+    additionalExtensionPaths: additionalPaths.length > 0 ? additionalPaths : undefined,
     // Filter out crew-of-pi itself to prevent recursive spawns
     extensionsOverride: (base) => {
       if (agentConfig.extensions.length === 0) {
         // No extensions listed → strip all (opt-in default)
         return { ...base, extensions: [] };
       }
-      // Opt-in: keep only base extensions matching the agent's list
+      // Keep only extensions matching the agent's opt-in list
       return {
         ...base,
         extensions: base.extensions.filter((ext) => {
