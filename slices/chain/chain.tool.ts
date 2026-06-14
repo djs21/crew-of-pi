@@ -36,6 +36,13 @@ export function registerChainTool(pi: ExtensionAPI): void {
       'All steps are notified to main agent via steering messages.',
     ].join(" "),
     parameters: ChainParams,
+    promptSnippet: "Run a sequential multi-agent workflow with {previous} placeholder passing.",
+    promptGuidelines: [
+      "crew_chain: Execute a sequential workflow where each step's output feeds the next via {previous}.",
+      "crew_chain: Each step spawns an isolated subagent with --no-extensions.",
+      "crew_chain: Use stopOnError: true to halt the chain on first failure.",
+      "crew_chain: All step results are notified via steering messages as they complete.",
+    ],
 
     async execute(_toolCallId, params, signal, _onUpdate, ctx: ExtensionContext) {
       const chainSteps: ChainStepConfig[] = params.chain.map((step: any) => ({

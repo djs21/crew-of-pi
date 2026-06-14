@@ -18,6 +18,12 @@ export function registerDoneTool(pi: ExtensionAPI): void {
     label: "Crew Done",
     description: "Close an interactive subagent session when you no longer need it.",
     parameters: DoneParams,
+    promptSnippet: "Close an interactive subagent session when no longer needed.",
+    promptGuidelines: [
+      "crew_done: Close a waiting interactive subagent owned by this session.",
+      "crew_done: Use only when no further follow-up is needed; otherwise use crew_respond.",
+      "crew_done: The subagent session is disposed and cannot be resumed.",
+    ],
 
     async execute(_toolCallId, params, _signal, _onUpdate, ctx: ExtensionContext) {
       const registry = getAgentRegistry();

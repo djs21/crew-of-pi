@@ -2,7 +2,7 @@
  * crew_list tool — list available subagent definitions and running subagents.
  */
 
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { getAgentRegistry } from "../agents/agents.registry";
 
@@ -12,11 +12,30 @@ export function registerCrewListTool(pi: ExtensionAPI): void {
     label: "Crew List",
     description: "List available subagent definitions and running subagents.",
     parameters: Type.Object({}),
+    promptSnippet: "List available subagents and active subagents. Use only for discovery or a requested status snapshot.",
+    promptGuidelines: [
+      "crew_list: List available subagent definitions and active subagents.",
+      "crew_list: Use before crew_spawn to discover names, models, tools, and interactive status.",
+      "crew_list: Use only for discovery or a requested status snapshot — do NOT poll for completion.",
+      "crew_list: Subagent results arrive automatically as steering messages. Polling wastes turns.",
+    ],
 
-    async execute(_toolCallId, _params, _signal, _onUpdate, _ctx) {
+    async execute(_toolCallId, _params, _signal, _onUpdate, ctx: ExtensionContext) {
       const registry = getAgentRegistry();
       const available = registry.getAll();
       const running = registry.getRunning();
+
+      // Anti-polling warning: tell main agent not to repeatedly check status
+      if (running.length > 0) {
+        pi.sendMessage(
+          {
+            customType: "crew-list-warning",
+            content: "⚠ Active subagents detected. Do NOT poll crew_list for completion — results arrive automatically as steering messages. Continue with other work or end your turn and wait.",
+            display: true,
+          },
+          { deliverAs: "steer", triggerTurn: true },
+        );
+      }
 
       let text = "## Available Subagents\n\n";
       if (available.length === 0) {

@@ -21,6 +21,13 @@ export function registerRespondTool(pi: ExtensionAPI): void {
     label: "Crew Respond",
     description: "Send a follow-up message to an interactive subagent that is waiting for a response.",
     parameters: RespondParams,
+    promptSnippet: "Send a follow-up message to a waiting interactive subagent.",
+    promptGuidelines: [
+      "crew_respond: Send a complete follow-up message to a waiting interactive subagent.",
+      "crew_respond: Use the waiting subagent ID from crew_spawn results or crew_list.",
+      "crew_respond: The subagent's response arrives as a steering message — do NOT poll.",
+      "crew_respond: Only works for subagents spawned with interactive: true.",
+    ],
 
     async execute(_toolCallId, params, _signal, _onUpdate, ctx: ExtensionContext) {
       const registry = getAgentRegistry();

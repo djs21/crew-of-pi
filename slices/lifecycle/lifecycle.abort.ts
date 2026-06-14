@@ -20,6 +20,13 @@ export function registerAbortTool(pi: ExtensionAPI): void {
     label: "Crew Abort",
     description: "Abort one or all running subagents. Provide subagent_id for specific, or all: true for all.",
     parameters: AbortParams,
+    promptSnippet: "Abort one, many, or all active subagents in this session.",
+    promptGuidelines: [
+      "crew_abort: Abort one, many, or all active subagents owned by this session.",
+      "crew_abort: Provide exactly one mode: subagent_id, subagent_ids, or all=true.",
+      "crew_abort: Use only when delegated work is obsolete, wrong, or explicitly cancelled.",
+      "crew_abort: Aborted subagents cannot be resumed.",
+    ],
 
     async execute(_toolCallId, params, _signal, _onUpdate, ctx: ExtensionContext) {
       const registry = getAgentRegistry();

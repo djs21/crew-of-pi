@@ -39,6 +39,16 @@ export function registerSpawnTool(pi: ExtensionAPI): void {
       'Use crew_list to check status. Use crew_abort to cancel.',
     ].join(" "),
     parameters: SpawnParams,
+    promptSnippet: "Spawn a non-blocking subagent. Use crew_list first to see available subagents.",
+    promptGuidelines: [
+      "crew_spawn: Spawn a discovered subagent for one clearly delegated, self-contained task.",
+      "crew_spawn: Use crew_list before spawning to discover available subagents.",
+      "crew_spawn: Include needed context in task: constraints, relevant files, acceptance criteria.",
+      "crew_spawn: After spawning, ownership transfers to the subagent — do not work on that task yourself.",
+      "crew_spawn: Results arrive as steering messages — do NOT poll crew_list or fabricate results.",
+      "crew_spawn: Subagents run ASYNC in background with --no-extensions by default.",
+      "crew_spawn: For interactive subagents, use crew_respond to reply and crew_done to close.",
+    ],
 
     async execute(_toolCallId, params, signal, _onUpdate, ctx: ExtensionContext) {
       const agentScope: AgentScope = params.agentScope ?? "both"; // ⬅️ default "both" agar bundled agents terdeteksi
