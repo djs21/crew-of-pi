@@ -10,7 +10,8 @@ Spawn isolated subagents that work in parallel while your main session stays res
 
 ## Features
 
-- **🧹 Clean main context** — Subagents run in isolated `pi` processes (`--no-session`), keeping the main agent's context window lean.
+- **🧹 Clean main context** — Subagents run in isolated sessions with their own context windows, keeping the main agent's context lean.
+- **🧠 Memory efficient** — Subagents share the pi runtime (in-process AgentSession) instead of separate processes. ~3-5x less memory than child-process approach.
 - **🔒 Main agent is read-only** — Main agent cannot `write` or `edit` files. All code changes are delegated to cheap `worker` subagents. Saves API costs.
 - **⚡ Async non-blocking** — Subagents run in the background. Results are delivered as steering messages. Main agent stays interactive.
 - **📋 Subagent listing** — `crew_list` shows available agent definitions and running subagents with status, turns, and costs.
@@ -18,7 +19,7 @@ Spawn isolated subagents that work in parallel while your main session stays res
 - **🤖 Automatic delegation** — System prompt injection makes the main agent aware of its crew. It decides: `scout` for recon, `planner` for planning, `worker` for code, `reviewer` for review.
 - **🔌 Per-agent extensions** — Each subagent definition can load custom extensions (path-based or `pi install` packages). Different subagents get different capabilities.
 - **⚙️ Config loader** — JSON-based agent overrides via `crew-of-pi.json` (`.pi/crew-of-pi.json` overrides `~/.pi/agent/crew-of-pi.json`).
-- **💾 Session persistence** — All subagent state persists across `/resume`, `/reload`, and session restarts.
+- **💾 Session persistence + naming** — Subagent sessions persist as named session files (`crew: worker · JWT login`). Visible in `pi session list`, resumable via `/resume`.
 - **📊 TUI status widget** — Live widget shows running subagents with real-time turns, token usage, and final status (completed/failed/aborted persist after finish).
 - **🔐 Session ownership** — Each subagent is tracked to its spawning session. `crew_abort`, `crew_respond`, and `crew_done` validate ownership — preventing cross-session interference. `session_shutdown` aborts only owned agents.
 - **⚠ Agent validation** — Invalid model format (`provider/model-id` required), unknown thinking levels, and missing frontmatter fields are caught at discovery and displayed as UI notifications.
@@ -76,10 +77,11 @@ After installation, restart pi or run `/reload`. The extension auto-loads from `
 └──────────────────────────────────────────────────────────┘
          │                                   ▲
          │ spawn (async, non-blocking)        │ steering message
-         │ --no-session --no-extensions        │ (result)
+         │ in-process AgentSession             │ (result)
          ▼                                   │
 ┌──────────────────────────────────────────────────────────┐
-│              ISOLATED SUBAGENT PROCESSES                  │
+│               ISOLATED SUBAGENT SESSIONS                   │
+│  (named session files, native turn tracking, compaction)  │
 │                                                          │
 │  ┌──────────┐  ┌───────────┐  ┌──────────┐  ┌────────┐ │
 │  │  Worker  │  │   Scout   │  │ Planner  │  │Reviewer│ │
@@ -323,7 +325,7 @@ The subagent follows these instructions when executing tasks.
 
 ### Extension Loading Per Subagent
 
-Each subagent loads **only** the extensions listed in its `extensions` field. The default spawn uses `--no-extensions` to prevent inherited extensions from the main session. This means:
+Each subagent loads **only** the extensions listed in its `extensions` field. Extension loading is controlled via the `DefaultResourceLoader` — extensions not in the agent's list are stripped by the `extensionsOverride` filter. This means:
 
 - **Worker** with `git-checkpoint`: auto-stash before edits, rollback on failure
 - **Scout** with `[]`: no extensions needed, pure read-only
@@ -515,9 +517,16 @@ setPromptConfig({
 
 ---
 
-## Session Persistence
+## Session Persistence + Naming
 
-All subagent state is persisted to session entries. If you `/resume`, `/reload`, or `/new`/`/fork`:
+Each subagent runs in a named `AgentSession` with its own session file (`~/.pi/sessions/crew-*.session.json`). This means:
+
+- **Named sessions** — `pi session list` shows `crew: worker · JWT login`
+- **Resumable** — `/resume crew-worker-abc` opens the subagent's conversation
+- **Full history** — Every turn, tool call, and result is stored in the session file
+- **Lifecycle** — Subagents persist across `/reload`, `/resume`, and session restarts
+
+Additional tracking via session entries:
 
 - Running subagents are tracked via `crew-subagent-spawn` entries
 - Completed results stored in `crew-subagent-result` entries
@@ -539,7 +548,9 @@ The main agent delegates code changes to cheap subagent models:
 | Planner | deepseek-v4-flash | Read-only | $ |
 | Reviewer | deepseek-v4-flash | Read-only | $ |
 
-The main agent only does **thinking & orchestration** (reading codebase, planning delegation). All expensive write operations run on cheap models in isolated contexts.
+The main agent only does **thinking & orchestration** (reading codebase, planning delegation). All expensive write operations run on cheap models in isolated sessions.
+
+**Memory efficiency:** Because subagents share the pi runtime (in-process AgentSession), there's no per-subagent pi process overhead. Memory usage scales linearly with conversation history (~3MB/session) instead of spiking ~120MB per child process.
 
 ---
 

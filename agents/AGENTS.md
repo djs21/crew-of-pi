@@ -19,7 +19,7 @@ Bundled subagent definitions that ship with crew-of-pi. Each `.md` file defines 
 1. **Every agent MUST have** `name`, `description`, and `tools` in frontmatter
 2. **Worker is the only agent with write/edit** — all others are read-only
 3. **Model override** via `crew-of-pi.json` config or `crew_spawn` `model` parameter
-4. **Default spawn uses `--no-extensions`** — extensions only load if explicitly listed in frontmatter
+4. **Default spawn uses `--no-extensions`** — extensions only load if explicitly listed in frontmatter, controlled via `extensionsOverride` filter in `DefaultResourceLoader`.
 5. **Priority hierarchy** for custom agents: project (`.pi/agents/*.md`) > user (`~/.pi/agent/agents/*.md`) > bundled (this dir)
 6. **Output format** varies per agent type — each agent's system prompt defines its expected output structure
 
