@@ -71,13 +71,9 @@ export function registerRespondTool(pi: ExtensionAPI): void {
       // Persist to session
       persistMessage(pi, sentMessage);
 
-      // Pipe response to subagent stdin
-      if (handle.proc && handle.proc.stdin && !handle.proc.stdin.destroyed) {
-        handle.proc.stdin.write(JSON.stringify({
-          type: "crew_response",
-          message: params.message,
-          messageId: sentMessage.id,
-        }) + "\n");
+      // Send response to subagent session (fire-and-forget prompt)
+      if (handle.session) {
+        handle.session.prompt(params.message).catch(() => {});
       }
 
       return {

@@ -6,13 +6,31 @@
 import { StringEnum } from "@earendil-works/pi-ai";
 import { type ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type { ExtensionContext, ModelRegistry } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
 import { type AgentScope } from "../../shared/types";
 import { getAgentRegistry } from "../agents/agents.registry";
 import { findAgent } from "../agents/agents.discovery";
 import { spawnSubagentAsync } from "./spawn.manager";
 import { syncWidgetFromRegistry } from "../widget/widget.updater";
+
+// ─── Spawn Infrastructure (set by index.ts session_start) ──────
+
+export interface SpawnInfra {
+  modelRegistry: ModelRegistry;
+  agentDir: string;
+  extensionDir: string;
+}
+
+let _infra: SpawnInfra | undefined;
+
+export function setSpawnInfra(infra: SpawnInfra): void {
+  _infra = infra;
+}
+
+export function getSpawnInfra(): SpawnInfra | undefined {
+  return _infra;
+}
 
 const AgentScopeSchema = StringEnum(["user", "project", "both"] as const, {
   description: 'Which agent directories to use. Default: "both" (user + project + bundled). Use "user" for user-only.',

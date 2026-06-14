@@ -1,198 +1,107 @@
 /**
  * Subagent process spawn lifecycle manager.
- * Spawns isolated pi processes with --no-extensions --no-session --mode json -p.
+ * Uses pi SDK createAgentSession for native session management,
+ * turn tracking, and session persistence.
  * Results delivered as steering messages to the main session.
  */
 
-import { spawn } from "node:child_process";
-import * as fs from "node:fs";
-import * as os from "node:os";
-import * as path from "node:path";
-import * as fsPromises from "node:fs/promises";
-import type { Message } from "@earendil-works/pi-ai";
-import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type { AgentMessage, Api, AssistantMessage, Model } from "@earendil-works/pi-ai";
+import {
+  type AgentSession,
+  type AgentSessionEvent,
+  DefaultResourceLoader,
+  type ModelRegistry,
+  SessionManager,
+  SettingsManager,
+  createAgentSession,
+} from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import type { AgentConfig, SubagentHandle, SubagentStatus, UsageStats } from "../../shared/types";
 import { generateId, INITIAL_USAGE, MAX_CONCURRENCY } from "../../shared/types";
-import { getPiInvocation, type StreamingResult } from "./spawn.types";
+import { getSpawnInfra } from "./spawn.tool";
 import { syncWidgetFromRegistry } from "../widget/widget.updater";
 
-function formatTokens(count: number): string {
-  if (count < 1000) return count.toString();
-  if (count < 10000) return `${(count / 1000).toFixed(1)}k`;
-  if (count < 1000000) return `${Math.round(count / 1000)}k`;
-  return `${(count / 1000000).toFixed(1)}M`;
-}
+// ─── Helpers ────────────────────────────────────────────────────
 
-// ─── Temp Prompt Writer ─────────────────────────────────────────
-
-async function writePromptToTempFile(
-  agentName: string,
-  prompt: string,
-): Promise<{ dir: string; filePath: string }> {
-  const tmpDir = await fsPromises.mkdtemp(path.join(os.tmpdir(), "pi-subagent-"));
-  const safeName = agentName.replace(/[^\w.-]+/g, "_");
-  const filePath = path.join(tmpDir, `prompt-${safeName}.md`);
-  await fsPromises.writeFile(filePath, prompt, { encoding: "utf-8", mode: 0o600 });
-  return { dir: tmpDir, filePath };
-}
-
-const _activeTempDirs = new Set<string>();
-
-function trackTempDir(dir: string): void {
-  _activeTempDirs.add(dir);
-}
-
-function untrackTempDir(dir: string): void {
-  _activeTempDirs.delete(dir);
-}
-
-// Clean up all remaining temp dirs on process exit
-process.on("exit", () => {
-  for (const dir of _activeTempDirs) {
-    try { fs.rmSync(dir, { recursive: true, force: true }); } catch {}
-  }
-});
-
-function cleanupTemp(dir: string, filePath: string): void {
-  try { fs.unlinkSync(filePath); } catch { /* ignore */ }
-  try { fs.rmdirSync(dir); } catch { /* ignore */ }
-}
-
-// ─── Spawn Arguments Builder ────────────────────────────────────
-
-function buildSpawnArgs(
-  agentConfig: AgentConfig,
-  task: string,
-  extraArgs?: string[],
-): string[] {
-  const args: string[] = [
-    "--mode", "json",
-    "-p",
-    "--no-session",
-    "--no-extensions",           // ⬅️ CEGAH endless spawning & blocker inheritance
-  ];
-
-  if (agentConfig.model) {
-    args.push("--model", agentConfig.model);
-  }
-
-  if (agentConfig.tools && agentConfig.tools.length > 0) {
-    args.push("--tools", agentConfig.tools.join(","));
-  }
-
-  // Tambahkan extension yang explicitly diminta
-  if (agentConfig.extensions && agentConfig.extensions.length > 0) {
-    for (const ext of agentConfig.extensions) {
-      if (ext.resolved) {
-        args.push("--extension", ext.resolved);
-      } else if (ext.type === "pi-package") {
-        args.push("--extension", ext.value);
-      }
-    }
-  }
-
-  // Tambahan extra args (model override, dll)
-  if (extraArgs) {
-    args.push(...extraArgs);
-  }
-
-  return args;
-}
-
-// ─── JSON Line Parser ───────────────────────────────────────────
-
-interface ParseState {
-  lastProcessedLen: number;
-  pendingPartial: string;
-}
-
-function parseJsonLines(
-  buffer: string,
-  currentResult: StreamingResult,
-  parseState: ParseState,
-): void {
-  // Only process new data since last call, prepend any pending partial line
-  let newData = parseState.pendingPartial + buffer.slice(parseState.lastProcessedLen);
-  parseState.lastProcessedLen = buffer.length;
-
-  // If newData doesn't end with newline, save the last incomplete line
-  if (!newData.endsWith("\n")) {
-    const lastNewline = newData.lastIndexOf("\n");
-    if (lastNewline >= 0) {
-      parseState.pendingPartial = newData.slice(lastNewline + 1);
-      newData = newData.slice(0, lastNewline + 1);
-    } else {
-      parseState.pendingPartial = newData;
-      return;
-    }
-  } else {
-    parseState.pendingPartial = "";
-  }
-
-  const lines = newData.split("\n");
-  let fullResult = { ...currentResult };
-
-  for (const line of lines) {
-    if (!line.trim()) continue;
-    let event: any;
-    try {
-      event = JSON.parse(line);
-    } catch {
-      continue;
-    }
-
-    if (event.type === "message_end" && event.message) {
-      const msg = event.message as Message;
-      const messages = [...fullResult.messages, msg];
-      fullResult = { ...fullResult, messages };
-
-      if (msg.role === "assistant") {
-        const usage = msg.usage;
-        if (usage) {
-          fullResult.usage = {
-            input: fullResult.usage.input + (usage.input || 0),
-            output: fullResult.usage.output + (usage.output || 0),
-            cacheRead: fullResult.usage.cacheRead + (usage.cacheRead || 0),
-            cacheWrite: fullResult.usage.cacheWrite + (usage.cacheWrite || 0),
-            cost: fullResult.usage.cost + (usage.cost?.total || 0),
-            contextTokens: usage.totalTokens || 0,
-            turns: fullResult.usage.turns + 1,
-          };
-        } else {
-          // Always count turns even if usage stats absent (some API responses omit usage)
-          fullResult.usage = { ...fullResult.usage, turns: fullResult.usage.turns + 1 };
-        }
-        if (!fullResult.model && msg.model) fullResult.model = msg.model;
-        if (msg.stopReason) fullResult.stopReason = msg.stopReason;
-        if (msg.errorMessage) fullResult.errorMessage = msg.errorMessage;
-      }
-    }
-  }
-
-  // Update currentResult in place (mutable for performance)
-  currentResult.messages = fullResult.messages;
-  currentResult.usage = fullResult.usage;
-  currentResult.model = fullResult.model;
-  currentResult.stopReason = fullResult.stopReason;
-  currentResult.errorMessage = fullResult.errorMessage;
-}
-
-function getFinalOutput(messages: Message[]): string {
+function getLastAssistantMessage(messages: AgentMessage[]): AssistantMessage | undefined {
   for (let i = messages.length - 1; i >= 0; i--) {
     const msg = messages[i];
-    if (msg.role === "assistant") {
-      for (const part of msg.content) {
-        if (part.type === "text") return part.text;
-      }
-    }
+    if (msg.role === "assistant") return msg as AssistantMessage;
   }
-  return "";
+  return undefined;
 }
 
-function isFailedResult(result: StreamingResult): boolean {
-  return result.exitCode !== 0 ||
-    result.stopReason === "error" ||
-    result.stopReason === "aborted";
+function getAssistantText(message: AssistantMessage | undefined): string | undefined {
+  if (!message) return undefined;
+  const texts: string[] = [];
+  for (const part of message.content) {
+    if (part.type === "text") texts.push(part.text);
+  }
+  return texts.length > 0 ? texts.join("\n") : undefined;
+}
+
+function taskPreview(task: string, maxLen = 50): string {
+  if (task.length <= maxLen) return task;
+  return task.slice(0, maxLen).trimEnd() + "…";
+}
+
+// ─── Model Resolution ───────────────────────────────────────────
+
+function resolveModel(
+  agentConfig: AgentConfig,
+  modelRegistry: ModelRegistry,
+): { model: Model<Api> | undefined; warning?: string } {
+  if (!agentConfig.model) return { model: undefined };
+
+  const slashIdx = agentConfig.model.indexOf("/");
+  if (slashIdx === -1) return { model: undefined, warning: `Invalid model "${agentConfig.model}"` };
+
+  const provider = agentConfig.model.slice(0, slashIdx).trim();
+  const modelId = agentConfig.model.slice(slashIdx + 1).trim();
+  if (!provider || !modelId) return { model: undefined, warning: `Invalid model "${agentConfig.model}"` };
+
+  const found = modelRegistry.find(provider, modelId);
+  if (!found) return { model: undefined, warning: `Model "${agentConfig.model}" not found, using session default` };
+
+  return { model: found };
+}
+
+// ─── Resource Loader Per Subagent ───────────────────────────────
+
+function createSubagentResourceLoader(
+  agentConfig: AgentConfig,
+  cwd: string,
+  infra: { agentDir: string; extensionDir: string },
+): DefaultResourceLoader {
+  return new DefaultResourceLoader({
+    cwd,
+    agentDir: infra.agentDir,
+    // Filter out crew-of-pi itself to prevent recursive spawns
+    extensionsOverride: (base) => {
+      if (agentConfig.extensions.length === 0) {
+        // No extensions listed → strip all
+        return { ...base, extensions: [] };
+      }
+      // Opt-in: keep only extensions matching the agent's list
+      return {
+        ...base,
+        extensions: base.extensions.filter((ext) => {
+          // Always filter out crew-of-pi
+          if (ext.resolvedPath.startsWith(infra.extensionDir)) return false;
+          // Only include if explicitly in agent's extensions list
+          return agentConfig.extensions.some((agentExt) =>
+            ext.resolvedPath === agentExt.resolved ||
+            ext.resolvedPath.endsWith(agentExt.value),
+          );
+        }),
+      };
+    },
+    // Inject agent's system prompt
+    appendSystemPromptOverride: (base) =>
+      agentConfig.systemPrompt.trim()
+        ? [...base, agentConfig.systemPrompt]
+        : base,
+  });
 }
 
 // ─── Main Spawn Function ────────────────────────────────────────
@@ -200,7 +109,8 @@ function isFailedResult(result: StreamingResult): boolean {
 export interface SpawnSubagentResult {
   handle: SubagentHandle;
   output: string;
-  streamingResult: StreamingResult;
+  session: AgentSession;
+  sessionFile?: string;
 }
 
 export async function spawnSubagentProcess(
@@ -208,9 +118,11 @@ export async function spawnSubagentProcess(
   task: string,
   signal: AbortSignal | undefined,
   cwd: string,
-  extraSpawnArgs?: string[],
   onProgress?: (turns: number, status: SubagentStatus, usage: UsageStats) => void,
 ): Promise<SpawnSubagentResult> {
+  const infra = getSpawnInfra();
+  if (!infra) throw new Error("Spawn infrastructure not initialized. Call setSpawnInfra() in session_start.");
+
   const id = generateId(agentConfig.name);
 
   const handle: SubagentHandle = {
@@ -225,118 +137,104 @@ export async function spawnSubagentProcess(
     usage: { ...INITIAL_USAGE },
   };
 
-  const streamingResult: StreamingResult = {
-    messages: [],
-    usage: { ...INITIAL_USAGE },
-    exitCode: 0,
-  };
+  // Resolve model
+  const { model, warning: modelWarning } = resolveModel(agentConfig, infra.modelRegistry);
 
-  const baseArgs = buildSpawnArgs(agentConfig, task, extraSpawnArgs);
-  let tmpPromptDir: string | null = null;
-  let tmpPromptPath: string | null = null;
+  // Setup resource loader with agent-specific extensions + system prompt
+  const resourceLoader = createSubagentResourceLoader(agentConfig, cwd, infra);
+  await resourceLoader.reload();
+
+  // Setup session manager with compaction from agent config
+  const settingsManager = SettingsManager.inMemory({
+    compaction: { enabled: agentConfig.compaction ?? true },
+  });
+
+  const sessionManager = SessionManager.create(cwd);
+  sessionManager.newSession();
+
+  // Create agent session
+  const { session } = await createAgentSession({
+    cwd,
+    agentDir: infra.agentDir,
+    model,
+    thinkingLevel: agentConfig.thinking as any,
+    tools: agentConfig.tools,
+    resourceLoader,
+    sessionManager,
+    settingsManager,
+    authStorage: infra.modelRegistry.authStorage,
+    modelRegistry: infra.modelRegistry,
+  });
+
+  // Name the session for pi session list
+  const brief = taskPreview(task);
+  session.setSessionName(`crew: ${agentConfig.name} · ${brief}`);
+
+  handle.session = session;
+  handle.status = "running";
+
+  // Live turn tracking via session subscription (NATIVE — no parseJsonLines)
+  const usageAccum: UsageStats = { ...INITIAL_USAGE };
+
+  const unsubscribe = session.subscribe((event: AgentSessionEvent) => {
+    if (event.type !== "turn_end") return;
+
+    const msg = event.message;
+    if (msg.role === "assistant") {
+      const asst = msg as AssistantMessage;
+      usageAccum.turns++;
+      if (asst.usage) {
+        usageAccum.input += asst.usage.input || 0;
+        usageAccum.output += asst.usage.output || 0;
+        usageAccum.cacheRead += asst.usage.cacheRead || 0;
+        usageAccum.cacheWrite += asst.usage.cacheWrite || 0;
+        usageAccum.cost += asst.usage.cost?.total || 0;
+        usageAccum.contextTokens = asst.usage.totalTokens || 0;
+      }
+      if (!handle.model && asst.model) handle.model = asst.model;
+    }
+
+    onProgress?.(usageAccum.turns, "running", usageAccum);
+  });
+
+  // Abort signal → session abort
+  if (signal) {
+    const abortSession = () => {
+      handle.status = "aborted";
+      session.abort().catch(() => {});
+    };
+    if (signal.aborted) abortSession();
+    else signal.addEventListener("abort", abortSession, { once: true });
+  }
 
   try {
-    // Write system prompt to temp file if needed
-    if (agentConfig.systemPrompt.trim()) {
-      let promptContent = agentConfig.systemPrompt;
-      if (agentConfig.interactive) {
-        promptContent += `\n\n## Interactive Mode\n\nYou are running in INTERACTIVE mode. If you need clarification from the orchestrator, output a message starting with "CLARIFY:" and the orchestrator will respond. You will receive the response via stdin.\n`;
-      }
-      const tmp = await writePromptToTempFile(agentConfig.name, promptContent);
-      tmpPromptDir = tmp.dir;
-      tmpPromptPath = tmp.filePath;
-      trackTempDir(tmp.dir);
-      baseArgs.push("--append-system-prompt", tmpPromptPath);
+    await session.prompt(task);
+
+    // Determine outcome
+    const lastAssistant = getLastAssistantMessage(session.messages);
+    if (lastAssistant?.stopReason === "error") {
+      handle.status = "failed";
+    } else if (lastAssistant?.stopReason === "aborted") {
+      handle.status = "aborted";
+    } else {
+      handle.status = "completed";
     }
-    // Always pass task as positional prompt (user message)
-    baseArgs.push(`Task: ${task}`);
 
-    handle.status = "running";
-
-    // Per-process parse state — avoids race condition when multiple subagents run concurrently
-    const parseState: ParseState = { lastProcessedLen: 0, pendingPartial: "" };
-
-    const exitCode = await new Promise<number>((resolve) => {
-      const invocation = getPiInvocation(baseArgs);
-      const proc = spawn(invocation.command, invocation.args, {
-        cwd,
-        shell: false,
-        stdio: agentConfig.interactive ? ["pipe", "pipe", "pipe"] : ["ignore", "pipe", "pipe"],
-      });
-
-      handle.pid = proc.pid;
-      if (agentConfig.interactive) {
-        handle.proc = proc;
-      }
-
-      let buffer = "";
-
-      proc.stdout.on("data", (data: Buffer) => {
-        buffer += data.toString();
-        parseJsonLines(buffer, streamingResult, parseState);
-        // Live sync: propagate turns/usage to registry + widget during execution
-        if (onProgress && streamingResult.usage.turns > 0) {
-          onProgress(streamingResult.usage.turns, "running", streamingResult.usage);
-        }
-      });
-
-      proc.stderr.on("data", (data: Buffer) => {
-        // stderr dari pi process (debug info, dll)
-      });
-
-      proc.on("close", (code) => {
-        if (buffer.trim()) parseJsonLines(buffer, streamingResult, parseState);
-        handle.proc = undefined;
-        // Final progress push before resolve
-        if (onProgress) {
-          const finalStatus = isFailedResult(streamingResult) ? "failed" : "completed";
-          onProgress(streamingResult.usage.turns, finalStatus, streamingResult.usage);
-        }
-        resolve(code ?? 0);
-      });
-
-      proc.on("error", () => {
-        resolve(1);
-      });
-
-      // Abort signal
-      if (signal) {
-        const killProc = () => {
-          handle.status = "aborted";
-          proc.kill("SIGTERM");
-          setTimeout(() => {
-            if (!proc.killed) proc.kill("SIGKILL");
-          }, 5000);
-        };
-        if (signal.aborted) killProc();
-        else signal.addEventListener("abort", killProc, { once: true });
-      }
-    });
-
-    streamingResult.exitCode = exitCode;
-    handle.status = isFailedResult(streamingResult) ? "failed" : "completed";
-    handle.turns = streamingResult.usage.turns;
-
-    return {
-      handle,
-      output: getFinalOutput(streamingResult.messages),
-      streamingResult,
-    };
-  } catch (error: any) {
+    handle.turns = usageAccum.turns;
+    handle.usage = usageAccum;
+  } catch (err: any) {
     handle.status = "failed";
-    streamingResult.exitCode = 1;
-    streamingResult.errorMessage = error.message;
-    return {
-      handle,
-      output: error.message,
-      streamingResult,
-    };
+    usageAccum.turns = Math.max(0, usageAccum.turns);
+    handle.turns = usageAccum.turns;
+    handle.usage = usageAccum;
   } finally {
-    if (tmpPromptPath && tmpPromptDir) {
-      cleanupTemp(tmpPromptDir, tmpPromptPath);
-      untrackTempDir(tmpPromptDir);
-    }
+    unsubscribe();
   }
+
+  const output = getAssistantText(getLastAssistantMessage(session.messages)) || "";
+  const sessionFile = session.sessionFile;
+
+  return { handle, output, session, sessionFile };
 }
 
 // ─── Async Spawn with Steering Delivery ─────────────────────────
@@ -386,8 +284,8 @@ export function spawnSubagentAsync(
     syncWidgetFromRegistry(pi);
     try {
       const result = await spawnSubagentProcess(
-        agentConfig, task, signal, cwd, undefined,
-        // Live progress callback — update registry handle + widget during execution
+        agentConfig, task, signal, cwd,
+        // Live progress callback — turns/usage from session subscription
         (turns, _status, usage) => {
           handle.turns = turns;
           handle.usage = usage;
@@ -396,18 +294,18 @@ export function spawnSubagentAsync(
       );
       handle.status = result.handle.status;
       handle.turns = result.handle.turns;
-      handle.proc = result.handle.proc;
-      handle.usage = result.streamingResult.usage;
+      handle.session = result.session;
+      handle.usage = result.handle.usage;
 
       // Persist result
       pi.appendEntry("crew-subagent-result", {
         id: result.handle.id,
         agentName: result.handle.agentName,
         output: result.output,
-        usage: result.streamingResult.usage,
-        exitCode: result.streamingResult.exitCode,
+        usage: result.handle.usage,
         status: result.handle.status,
         completedAt: Date.now(),
+        sessionFile: result.sessionFile,
       });
 
       // Update widget
@@ -424,14 +322,16 @@ export function spawnSubagentAsync(
               subagentId: handle.id,
               agentName: agentConfig.name,
               output: result.output,
-              usage: result.streamingResult.usage,
+              usage: result.handle.usage,
               turns: result.handle.turns,
+              sessionFile: result.sessionFile,
             },
           },
           { deliverAs: "steer", triggerTurn: true },
         );
       } else {
-        const errorMsg = result.streamingResult.errorMessage || "(no output)";
+        const lastAssistant = getLastAssistantMessage(result.session.messages);
+        const errorMsg = lastAssistant?.errorMessage || "(no output)";
         pi.sendMessage(
           {
             customType: "crew-subagent-error",
@@ -441,7 +341,6 @@ export function spawnSubagentAsync(
               subagentId: handle.id,
               agentName: agentConfig.name,
               error: errorMsg,
-              exitCode: result.streamingResult.exitCode,
             },
           },
           { deliverAs: "steer", triggerTurn: true },
@@ -465,24 +364,8 @@ export function spawnSubagentAsync(
   return handle;
 }
 
-/**
- * Abort a running subagent process by PID.
- */
-export function abortSubagentProcess(pid: number): boolean {
-  try {
-    process.kill(pid, "SIGTERM");
-    setTimeout(() => {
-      try { process.kill(pid, "SIGKILL"); } catch { /* already dead */ }
-    }, 5000);
-    return true;
-  } catch {
-    return false;
-  }
-}
+// ─── Concurrency Limiter ────────────────────────────────────────
 
-/**
- * Track concurrency for parallel spawns using a semaphore.
- */
 export class ConcurrencyTracker {
   private max: number;
   private current: number = 0;
@@ -511,7 +394,5 @@ export class ConcurrencyTracker {
     }
   }
 }
-
-// ─── Concurrency Limiter ────────────────────────────────────────
 
 const concurrencyTracker = new ConcurrencyTracker(MAX_CONCURRENCY);

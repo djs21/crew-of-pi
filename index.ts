@@ -5,7 +5,8 @@
  * Each slice is self-contained. To add/remove a feature, add/remove one import.
  */
 
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ModelRegistry } from "@earendil-works/pi-coding-agent";
+import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import * as path from "node:path";
 
 // ─── Agent Discovery ────────────────────────────────────────────
@@ -13,7 +14,7 @@ import { getAgentRegistry, resetAgentRegistry } from "./slices/agents/agents.reg
 import { setBundledAgentsDir } from "./slices/agents/agents.discovery";
 
 // ─── Spawn ──────────────────────────────────────────────────────
-import { registerSpawnTool } from "./slices/spawn/spawn.tool";
+import { registerSpawnTool, setSpawnInfra } from "./slices/spawn/spawn.tool";
 import { getWidgetStore, resetWidgetStore } from "./slices/widget/widget.store";
 
 // ─── Blockers ───────────────────────────────────────────────────
@@ -59,6 +60,13 @@ export default function (pi: ExtensionAPI) {
     // Refresh with bundled agents
     registry.refresh(ctx.cwd, "both");
 
+    // Store spawn infrastructure for subagent sessions
+    setSpawnInfra({
+      modelRegistry: ctx.modelRegistry,
+      agentDir: getAgentDir(),
+      extensionDir: bundledAgentsPath,
+    });
+
     // Set default block policy
     setBlockPolicy({
       blockedTools: [
@@ -91,10 +99,12 @@ export default function (pi: ExtensionAPI) {
     const sessionId = ctx.sessionManager.getSessionId();
     const registry = getAgentRegistry();
 
-    // Abort all running subagents owned by this session
+    // Dispose owned subagent sessions (session-based, no more PID kill)
     for (const handle of registry.getRunning()) {
-      if (handle.ownerSession === sessionId && handle.pid) {
-        try { process.kill(handle.pid, "SIGTERM"); } catch { /* already dead */ }
+      if (handle.ownerSession === sessionId) {
+        if (handle.session) {
+          try { handle.session.dispose(); } catch { /* already disposed */ }
+        }
       }
     }
 

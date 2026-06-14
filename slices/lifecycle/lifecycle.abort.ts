@@ -5,7 +5,6 @@
 import { type ExtensionAPI, type ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { Text } from "@earendil-works/pi-tui";
-import { abortSubagentProcess } from "../spawn/spawn.manager";
 import { getAgentRegistry } from "../agents/agents.registry";
 import type { LifecycleResult } from "./lifecycle.types";
 
@@ -40,10 +39,10 @@ export function registerAbortTool(pi: ExtensionAPI): void {
           // Skip agents owned by other sessions
           if (handle.ownerSession && handle.ownerSession !== callerSessionId) continue;
 
-          const success = handle.pid ? abortSubagentProcess(handle.pid) : false;
+          handle.session?.abort().catch(() => {});
           registry.updateRunning(handle.id, { status: "aborted" });
           results.push({
-            success,
+            success: true,
             subagentId: handle.id,
             status: "aborted",
             message: `Aborted ${handle.agentName} (${handle.id})`,
@@ -81,7 +80,7 @@ export function registerAbortTool(pi: ExtensionAPI): void {
           };
         }
 
-        const success = handle.pid ? abortSubagentProcess(handle.pid) : false;
+        handle.session?.abort().catch(() => {});
         registry.updateRunning(params.subagent_id, { status: "aborted" });
 
         pi.appendEntry("crew-subagent-result", {
