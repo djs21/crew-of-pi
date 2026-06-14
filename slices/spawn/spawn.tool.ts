@@ -101,10 +101,12 @@ export function registerSpawnTool(pi: ExtensionAPI): void {
 
     renderCall(args: any, theme: any) {
       const agentName = args.agent || "...";
-      const preview = args.task
-        ? (args.task.length > 60 ? `${args.task.slice(0, 60)}...` : args.task)
-        : "...";
-      return new Text(`🚀 ${theme.fg("toolTitle", "spawn ")}${theme.fg("accent", agentName)}\n  ${theme.fg("dim", preview)}`, 0, 0);
+      const task = args.task || "";
+      const preview = task.length > 50
+        ? `${task.slice(0, 50).trimEnd()}…`
+        : task;
+      const label = preview ? `${agentName} · ${preview}` : agentName;
+      return new Text(`${theme.fg("toolTitle", theme.bold("crew_spawn"))} ${theme.fg("accent", label)}`, 0, 0);
     },
 
     renderResult(result: any, { expanded }: any, theme: any) {
