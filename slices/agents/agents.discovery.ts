@@ -163,11 +163,13 @@ export function loadAgentFromDoc(doc: RawAgentDoc): { agent: AgentConfig | null;
     skills = rawSkills.map((s: unknown) => String(s).trim()).filter(Boolean);
   }
 
-  // Extensions — handle YAML array from SDK
+  // Extensions — handle YAML array or comma-separated string from SDK
   const rawExtensions = fm.extensions;
   const extensionsList: string[] = Array.isArray(rawExtensions)
     ? rawExtensions.map((e: unknown) => String(e).trim()).filter(Boolean)
-    : [];
+    : typeof rawExtensions === "string" && rawExtensions.trim()
+      ? rawExtensions.split(",").map((e: string) => e.trim()).filter(Boolean)
+      : [];
 
   const agentDir = path.dirname(filePath);
   const extensions = resolveExtensions(

@@ -127,8 +127,12 @@ export function applyConfigOverrides(
 
     if (overrides.extensions !== undefined) {
       // Resolve extensions using the agent's own directory
+      // Defensive: wrap single string into array (user may pass string instead of array)
       const agentDir = path.dirname(agent.filePath);
-      updated.extensions = resolveExtensions(overrides.extensions, agentDir);
+      const rawExtensions = Array.isArray(overrides.extensions)
+        ? overrides.extensions
+        : [String(overrides.extensions)];
+      updated.extensions = resolveExtensions(rawExtensions, agentDir);
     }
 
     return updated;
