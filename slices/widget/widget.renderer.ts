@@ -28,10 +28,20 @@ function formatTokens(count: number): string {
   return String(count);
 }
 
-function buildWidgetLine(row: WidgetRow, frame: string): string {
+function isSettledStatus(status: string): boolean {
+  return status === "completed" || status === "failed" || status === "aborted";
+}
+
+function buildActiveLine(row: WidgetRow, frame: string): string {
   const model = row.model ?? "…";
   const icon = STATUS_ICON[row.status] ?? frame;
   return `${icon} ${row.id} (${model}) · turn ${row.turns} · ${formatTokens(row.usage.contextTokens)} ctx`;
+}
+
+function buildSettledLine(row: WidgetRow): string {
+  const model = row.model ?? "…";
+  const icon = STATUS_ICON[row.status] ?? "✅";
+  return `  ${icon} ${row.id} (${model}) · ${formatTokens(row.usage.contextTokens)} ctx`;
 }
 
 // ─── Widget State ───────────────────────────────────────────────
@@ -65,7 +75,25 @@ function hasRunningAgent(rows: WidgetRow[]): boolean {
 
 function syncWidgetText(state: WidgetState, rows: WidgetRow[]): void {
   const frame = SPINNER_FRAMES[state.frameIndex % SPINNER_FRAMES.length];
-  state.text.setText(rows.map((r) => buildWidgetLine(r, frame)).join("\n"));
+
+  const lines: string[] = [];
+  let hasActive = false;
+  let enteredSettled = false;
+
+  for (const row of rows) {
+    if (isSettledStatus(row.status)) {
+      if (!enteredSettled) {
+        enteredSettled = true;
+        if (hasActive) lines.push("  ─ ─ ─");
+      }
+      lines.push(buildSettledLine(row));
+    } else {
+      hasActive = true;
+      lines.push(buildActiveLine(row, frame));
+    }
+  }
+
+  state.text.setText(lines.join("\n"));
   state.tui.requestRender();
 }
 

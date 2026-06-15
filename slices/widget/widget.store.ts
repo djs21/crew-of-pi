@@ -4,7 +4,7 @@
 
 import type { SubagentHandle } from "../../shared/types";
 import type { WidgetRow, WidgetState } from "./widget.types";
-import { DEFAULT_WIDGET_STATE, MAX_WIDGET_ROWS } from "./widget.types";
+import { DEFAULT_WIDGET_STATE, MAX_SETTLED_ROWS, MAX_WIDGET_ROWS } from "./widget.types";
 
 export class WidgetStore {
   private state: WidgetState = { ...DEFAULT_WIDGET_STATE };
@@ -66,13 +66,18 @@ export class WidgetStore {
   }
 
   /**
-   * Get rows for active widget display (all non-orphaned statuses).
-   * Includes running/spawned (during execution) and completed/failed/aborted (after).
+   * Get rows for widget display:
+   * - Active agents (spawned/running) shown as-is.
+   * - Last MAX_SETTLED_ROWS (4) settled agents (completed/failed/aborted) shown as compact history.
    */
   getActiveSummaries(): WidgetRow[] {
-    return this.state.rows.filter(
-      (r) => r.status !== "orphaned",
+    const active = this.state.rows.filter(
+      (r) => r.status === "spawned" || r.status === "running",
     );
+    const settled = this.state.rows.filter(
+      (r) => r.status === "completed" || r.status === "failed" || r.status === "aborted",
+    );
+    return [...active, ...settled.slice(-MAX_SETTLED_ROWS)];
   }
 
   /**

@@ -21,6 +21,7 @@ export interface WidgetState {
 }
 
 export const MAX_WIDGET_ROWS = 10;
+export const MAX_SETTLED_ROWS = 4;
 export const DEFAULT_WIDGET_STATE: WidgetState = {
   rows: [],
   isVisible: true,

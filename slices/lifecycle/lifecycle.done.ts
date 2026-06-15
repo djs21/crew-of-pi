@@ -6,6 +6,7 @@ import { type ExtensionAPI, type ExtensionContext } from "@earendil-works/pi-cod
 import { Type } from "typebox";
 import { Text } from "@earendil-works/pi-tui";
 import { getAgentRegistry } from "../agents/agents.registry";
+import { syncWidgetFromRegistry } from "../widget/widget.updater";
 import type { LifecycleResult } from "./lifecycle.types";
 
 const DoneParams = Type.Object({
@@ -47,7 +48,7 @@ export function registerDoneTool(pi: ExtensionAPI): void {
         };
       }
 
-      // Mark as completed and clean up
+      // Mark as completed
       registry.updateRunning(params.subagent_id, { status: "completed" });
 
       // Persist completion
@@ -58,6 +59,9 @@ export function registerDoneTool(pi: ExtensionAPI): void {
         completedAt: Date.now(),
         closedBy: "crew_done",
       });
+
+      // Refresh widget to show completed state
+      syncWidgetFromRegistry(pi);
 
       return {
         content: [{ type: "text", text: `Closed ${handle.agentName} (${params.subagent_id}). Session disposed.` }],
