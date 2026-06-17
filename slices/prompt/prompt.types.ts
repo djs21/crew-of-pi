@@ -8,6 +8,8 @@ export interface PromptInjectionConfig {
   enabled: boolean;
   includeAgentDescriptions: boolean;
   includeAgentExtensions: boolean;
+  /** Include subagent skills in agent listing so main agent knows what tools each subagent has */
+  includeAgentSkills: boolean;
   includeRules: boolean;
   customPreamble?: string;
   customRules?: string[];
@@ -17,6 +19,7 @@ export const DEFAULT_PROMPT_CONFIG: PromptInjectionConfig = {
   enabled: true,
   includeAgentDescriptions: true,
   includeAgentExtensions: true,
+  includeAgentSkills: true,
   includeRules: true,
 };
 
@@ -33,4 +36,5 @@ export const DEFAULT_RULES: string[] = [
   "Use crew_list to check running subagent status.",
   "Use crew_abort to cancel a running subagent.",
   "Use crew_chain for sequential multi-agent workflows.",
+  "Each subagent has specific skills listed in their entry. Delegate tasks that match those skills (e.g., researcher has Tavily web search, 9Router web search/fetch, and library docs lookup — do NOT tell researcher to use curl for web searches).",
 ];

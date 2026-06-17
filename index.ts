@@ -81,6 +81,7 @@ export default function (pi: ExtensionAPI) {
       enabled: true,
       includeAgentDescriptions: true,
       includeAgentExtensions: true,
+      includeAgentSkills: true,
       includeRules: true,
     });
 
