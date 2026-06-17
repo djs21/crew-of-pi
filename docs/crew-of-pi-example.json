@@ -1,0 +1,25 @@
+{
+  "agents": {
+    "worker": {
+      "model": "9r/worker",
+      "extensions": ["git:github.com/MasuRii/pi-rtk-optimizer"]
+    },
+    "scout": {
+      "model": "9r/scout",
+      "extensions": ["git:github.com/MasuRii/pi-rtk-optimizer"]
+    },
+    "researcher": {
+      "model": "9r/researcher",
+      "extensions": ["git:github.com/MasuRii/pi-rtk-optimizer"],
+      "skills": ["/home/djs/.pi/agent/pluthenplay/skills/subs-skills/"]
+    },
+    "planner": {
+      "model": "9r/planner",
+      "extensions": ["git:github.com/MasuRii/pi-rtk-optimizer"]
+    },
+    "reviewer": {
+      "model": "9r/reviewer",
+      "extensions": ["git:github.com/MasuRii/pi-rtk-optimizer"]
+    }
+  }
+}
