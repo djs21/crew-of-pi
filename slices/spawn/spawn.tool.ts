@@ -76,7 +76,13 @@ export function registerSpawnTool(pi: ExtensionAPI): void {
       const registry = getAgentRegistry();
       let agentConfig = registry.get(params.agent);
 
-      // Fallback: discovery langsung jika registry kosong
+      // Fallback: auto-refresh jika registry kosong, lalu cari lagi
+      if (!agentConfig) {
+        registry.refresh(cwd, agentScope);
+        agentConfig = registry.get(params.agent);
+      }
+
+      // Fallback: discovery langsung jika masih tidak ketemu
       if (!agentConfig) {
         agentConfig = findAgent(cwd, agentScope, params.agent);
       }

@@ -86,6 +86,9 @@ function createSubagentResourceLoader(
     cwd,
     agentDir: infra.agentDir,
     additionalExtensionPaths: additionalPaths.length > 0 ? additionalPaths : undefined,
+    additionalSkillPaths: agentConfig.skills && agentConfig.skills.length > 0
+      ? agentConfig.skills
+      : undefined,
     // Filter out crew-of-pi itself to prevent recursive spawns
     extensionsOverride: (base) => {
       if (agentConfig.extensions.length === 0) {
@@ -150,6 +153,9 @@ export async function spawnSubagentProcess(
 
   // Resolve model
   const { model, warning: modelWarning } = resolveModel(agentConfig, infra.modelRegistry);
+  if (modelWarning) {
+    console.warn(`[crew-of-pi] ${agentConfig.name}: ${modelWarning}`);
+  }
 
   // Setup resource loader with agent-specific extensions + system prompt
   const resourceLoader = createSubagentResourceLoader(agentConfig, cwd, infra);

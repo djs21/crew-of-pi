@@ -12,6 +12,7 @@ import {
 import type { AgentConfig, AgentDiscoveryResult, AgentDiscoveryWarning, AgentExtensionRef, AgentScope } from "../../shared/types";
 import type { FrontmatterFields } from "./agents.types";
 import { parseFrontmatter } from "./agents.frontmatter";
+import { loadCrewConfig, applyConfigOverrides } from "./agents.config";
 
 // ─── Validation ─────────────────────────────────────────────────
 
@@ -329,7 +330,7 @@ export function discoverAgents(cwd: string, scope: AgentScope): AgentDiscoveryRe
 }
 
 /**
- * Find a specific agent by name.
+ * Find a specific agent by name, with config overrides applied.
  */
 export function findAgent(
   cwd: string,
@@ -337,6 +338,11 @@ export function findAgent(
   agentName: string,
 ): AgentConfig | undefined {
   const { agents } = discoverAgents(cwd, scope);
+  const config = loadCrewConfig(cwd);
+  if (config && config.agents && Object.keys(config.agents).length > 0) {
+    const overridden = applyConfigOverrides(agents, config);
+    return overridden.find((a) => a.name === agentName);
+  }
   return agents.find((a) => a.name === agentName);
 }
 

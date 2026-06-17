@@ -95,6 +95,7 @@ export function loadCrewConfig(cwd: string): CrewConfig | null {
  *   - tools: override the tools array
  *   - extensions: override extensions (resolved relative to agent .md directory)
  *   - thinking: override thinking mode
+ *   - skills: override skills (skill names/paths)
  *
  * Extensions from config are resolved using the agent's filePath directory,
  * the same way frontmatter extensions are resolved.
@@ -133,6 +134,14 @@ export function applyConfigOverrides(
         ? overrides.extensions
         : [String(overrides.extensions)];
       updated.extensions = resolveExtensions(rawExtensions, agentDir);
+    }
+
+    if (overrides.skills !== undefined) {
+      // Skills are plain skill names/paths (not extension refs)
+      // Defensive: wrap single string into array
+      updated.skills = Array.isArray(overrides.skills)
+        ? overrides.skills.map(String)
+        : [String(overrides.skills)];
     }
 
     return updated;
