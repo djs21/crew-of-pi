@@ -8,7 +8,7 @@ import type { AgentConfig, SubagentHandle } from "../../shared/types";
 import { generateId, INITIAL_USAGE } from "../../shared/types";
 import { findAgent } from "../agents/agents.discovery";
 import { getAgentRegistry } from "../agents/agents.registry";
-import { spawnSubagentProcess } from "../spawn/spawn.manager";
+import { spawnSubagentSession } from "../spawn/spawn.manager";
 import { syncWidgetFromRegistry } from "../widget/widget.updater";
 import { CHAIN_PLACEHOLDER, type ChainProgress, type ChainStepConfig, type ChainStepResult } from "./chain.types";
 import { getMessageBus } from "../comms/comms.bus";
@@ -146,11 +146,13 @@ export async function executeChain(options: ChainExecutionOptions): Promise<Chai
     syncWidgetFromRegistry(pi);
 
     // Spawn the subagent (blocking per step — chain is sequential)
-    const spawnResult = await spawnSubagentProcess(
+    // Pass chainHandle directly — spawnSubagentSession mutates it in-place
+    const spawnResult = await spawnSubagentSession(
       agentConfig,
       augmentedTask,
       signal,
       step.cwd ?? cwd,
+      chainHandle,
       // Live progress: update widget turns/usage each turn
       (turns, _status, usage) => {
         getAgentRegistry().updateRunning(chainHandle.id, {
@@ -162,13 +164,7 @@ export async function executeChain(options: ChainExecutionOptions): Promise<Chai
       },
     );
 
-    // Update final status in registry + widget
-    const finalStatus = spawnResult.handle.status;
-    getAgentRegistry().updateRunning(chainHandle.id, {
-      turns: spawnResult.handle.turns,
-      status: finalStatus,
-      usage: spawnResult.handle.usage,
-    });
+    // chainHandle already mutated in-place — status, turns, session, usage
     syncWidgetFromRegistry(pi);
 
     // POINT B: parse inter-agent markers, route to message bus
@@ -192,9 +188,9 @@ export async function executeChain(options: ChainExecutionOptions): Promise<Chai
       agent: step.agent,
       task: augmentedTask,
       output: cleanText || spawnResult.output,
-      exitCode: spawnResult.handle.status === "failed" || spawnResult.handle.status === "aborted" ? 1 : 0,
-      turns: spawnResult.handle.turns,
-      errorMessage: spawnResult.handle.status === "failed" ? (spawnResult.output || "(failed)") : undefined,
+      exitCode: chainHandle.status === "failed" || chainHandle.status === "aborted" ? 1 : 0,
+      turns: chainHandle.turns,
+      errorMessage: chainHandle.status === "failed" ? (spawnResult.output || "(failed)") : undefined,
     };
 
     progress.results.push(stepResult);
@@ -205,17 +201,17 @@ export async function executeChain(options: ChainExecutionOptions): Promise<Chai
       options.onStepComplete(i + 1, stepResult, progress);
     }
 
-    // Persist step result
+    // Persist step result — chainHandle.status already set in-place
     pi.appendEntry("crew-chain-step", {
       chainId,
       step: i + 1,
       agent: step.agent,
       output: spawnResult.output,
-      status: spawnResult.handle.status,
+      status: chainHandle.status,
     });
 
     // Handle failure
-    if (spawnResult.handle.status === "failed" || spawnResult.handle.status === "aborted") {
+    if (chainHandle.status === "failed" || chainHandle.status === "aborted") {
       if (stopOnError) {
         progress.status = "failed";
         break;

@@ -4,7 +4,7 @@
 |---|-----------|--------|------|
 | 2 | **Unify lifecycle triplet** — shared ownership validation for abort/done/respond | ✅ Done | 2025-06-18 |
 | 1 | **Collapse agent discovery pipeline** — 5 files → 2 (config, frontmatter, types merged into discovery) | ✅ Done | 2025-06-18 |
-| 3 | Eliminate dual handle in spawn | ⏳ Pending | — |
+| 3 | **Eliminate dual handle in spawn** — ONE handle per subagent, mutated in-place | ✅ Done | 2025-06-18 |
 | 4 | Collapse comms slice (4 files → 1) | ⏳ Pending | — |
 | 5 | Chain step type dedup | ⏳ Pending | — |
 
@@ -78,3 +78,30 @@ slices/agents/
 - `index.ts`: `setBundledAgentsDir` still from `agents.discovery`
 - `spawn.tool.ts`, `chain.orchestrator.ts`: `findAgent` still from `agents.discovery`
 - All `getAgentRegistry` still from `agents.registry`
+
+---
+
+## #3: Eliminate Dual Handle in Spawn
+
+**Date:** 2025-06-18
+
+### Motivation
+
+`spawnSubagentProcess` created its own internal `SubagentHandle`, set status on it through the lifecycle (abort handler → after prompt → catch), then returned it. The caller (`spawnSubagentAsync`) copied status/turns/session/usage fields to the outer handle. Two objects for one subagent. The abort-race fix needed guards (`if status !== "aborted"`) to prevent overwrite — a symptom of the split.
+
+### What Changed
+
+- Renamed `spawnSubagentProcess` → `spawnSubagentSession` — clarifies it owns *session* lifecycle, not handle lifecycle
+- `spawnSubagentSession` now accepts `handle: SubagentHandle` as param, mutates it in-place
+- Returns `{ output, session, sessionFile }` — no handle in return type
+- `spawnSubagentAsync` creates ONE handle, passes it directly — no field copying after call
+- `chain.orchestrator.ts` passes `chainHandle` directly — no `spawnResult.handle.*` field copying
+
+### Depth Gained
+
+| Before | After |
+|--------|-------|
+| Inner handle created, status set, returned, fields copied | One handle, mutated in-place |
+| `finalStatus` variable to reconcile inner vs outer | `handle.status` is the single source of truth |
+| Guards needed to prevent status overwrite | Guards still exist but are fallbacks, not workarounds |
+| Chain ORM had `spawnResult.handle.*` copy pattern | Chain reads `chainHandle.status` directly |

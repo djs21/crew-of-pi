@@ -73,8 +73,6 @@ function createSubagentResourceLoader(
   cwd: string,
   infra: { agentDir: string; extensionDir: string },
 ): DefaultResourceLoader {
-  // Collect additional extension paths from agent config
-  // (custom paths not in standard ~/.pi/agent/extensions/ or .pi/extensions/)
   const additionalPaths: string[] = [];
   for (const ext of agentConfig.extensions) {
     if (ext.type === "path" && ext.resolved) {
@@ -89,20 +87,14 @@ function createSubagentResourceLoader(
     additionalSkillPaths: agentConfig.skills && agentConfig.skills.length > 0
       ? agentConfig.skills
       : undefined,
-    // Filter out crew-of-pi itself to prevent recursive spawns
     extensionsOverride: (base) => {
       if (agentConfig.extensions.length === 0) {
-        // No extensions listed → strip all (opt-in default)
         return { ...base, extensions: [] };
       }
-      // Keep only extensions matching the agent's opt-in list
       return {
         ...base,
         extensions: base.extensions.filter((ext) => {
-          // Always filter out crew-of-pi itself
           if (ext.resolvedPath.startsWith(infra.extensionDir)) return false;
-          // Match by exact resolved path, or by extension name in path
-          // (e.g. "git-checkpoint" matches .../extensions/git-checkpoint/index.ts)
           return agentConfig.extensions.some((agentExt) =>
             ext.resolvedPath === agentExt.resolved ||
             ext.resolvedPath.includes(`/${agentExt.value}/`),
@@ -110,7 +102,6 @@ function createSubagentResourceLoader(
         }),
       };
     },
-    // Inject agent's system prompt
     appendSystemPromptOverride: (base) =>
       agentConfig.systemPrompt.trim()
         ? [...base, agentConfig.systemPrompt]
@@ -120,36 +111,27 @@ function createSubagentResourceLoader(
 
 // ─── Main Spawn Function ────────────────────────────────────────
 
-export interface SpawnSubagentResult {
-  handle: SubagentHandle;
+export interface SpawnSessionResult {
   output: string;
   session: AgentSession;
   sessionFile?: string;
 }
 
-export async function spawnSubagentProcess(
+/**
+ * Create a session for a subagent and run the prompt.
+ * Mutates `handle` in-place (status, turns, session, usage).
+ * Does NOT create a separate handle — caller owns one handle per subagent.
+ */
+export async function spawnSubagentSession(
   agentConfig: AgentConfig,
   task: string,
   signal: AbortSignal | undefined,
   cwd: string,
+  handle: SubagentHandle,
   onProgress?: (turns: number, status: SubagentStatus, usage: UsageStats) => void,
-): Promise<SpawnSubagentResult> {
+): Promise<SpawnSessionResult> {
   const infra = getSpawnInfra();
   if (!infra) throw new Error("Spawn infrastructure not initialized. Call setSpawnInfra() in session_start.");
-
-  const id = generateId(agentConfig.name);
-
-  const handle: SubagentHandle = {
-    id,
-    agentName: agentConfig.name,
-    status: "spawned",
-    task,
-    model: agentConfig.model,
-    interactive: agentConfig.interactive,
-    spawnedAt: Date.now(),
-    turns: 0,
-    usage: { ...INITIAL_USAGE },
-  };
 
   // Resolve model
   const { model, warning: modelWarning } = resolveModel(agentConfig, infra.modelRegistry);
@@ -187,10 +169,11 @@ export async function spawnSubagentProcess(
   const brief = taskPreview(task);
   session.setSessionName(`crew: ${agentConfig.name} · ${brief}`);
 
+  // Mutate handle in-place — ONE handle per subagent
   handle.session = session;
   handle.status = "running";
 
-  // Live turn tracking via session subscription (NATIVE — no parseJsonLines)
+  // Live turn tracking via session subscription
   const usageAccum: UsageStats = { ...INITIAL_USAGE };
 
   const unsubscribe = session.subscribe((event: AgentSessionEvent) => {
@@ -227,7 +210,7 @@ export async function spawnSubagentProcess(
   try {
     await session.prompt(task);
 
-    // Determine outcome
+    // Determine outcome — mutates handle in-place
     const lastAssistant = getLastAssistantMessage(session.messages);
     if (lastAssistant?.stopReason === "error") {
       handle.status = "failed";
@@ -240,7 +223,7 @@ export async function spawnSubagentProcess(
     handle.turns = usageAccum.turns;
     handle.usage = usageAccum;
   } catch (err: any) {
-    // Guard: don't overwrite "aborted" set by crew_abort or abort handler
+    // Guard: don't overwrite "aborted" set by abort handler
     if (handle.status !== "aborted") {
       handle.status = "failed";
     }
@@ -254,7 +237,7 @@ export async function spawnSubagentProcess(
   const output = getAssistantText(getLastAssistantMessage(session.messages)) || "";
   const sessionFile = session.sessionFile;
 
-  return { handle, output, session, sessionFile };
+  return { output, session, sessionFile };
 }
 
 // ─── Async Spawn with Steering Delivery ─────────────────────────
@@ -274,6 +257,7 @@ export function spawnSubagentAsync(
   // the subagent is waiting for a concurrency slot.
   const abortController = new AbortController();
 
+  // ONE handle per subagent — created here, mutated in-place by spawnSubagentSession
   const handle: SubagentHandle = {
     id,
     agentName: agentConfig.name,
@@ -302,7 +286,7 @@ export function spawnSubagentAsync(
   // Update widget immediately after spawn
   syncWidgetFromRegistry(pi);
 
-  // Background async spawn with concurrency limit (tidak await — non-blocking)
+  // Background async spawn with concurrency limit
   (async () => {
     await concurrencyTracker.acquire();
 
@@ -323,9 +307,11 @@ export function spawnSubagentAsync(
     // Mark as running now that process is actually starting
     handle.status = "running";
     syncWidgetFromRegistry(pi);
+
     try {
-      const result = await spawnSubagentProcess(
-        agentConfig, task, abortController.signal, cwd,
+      // Pass handle directly — spawnSubagentSession mutates it in-place
+      const { output, session: resultSession, sessionFile } = await spawnSubagentSession(
+        agentConfig, task, abortController.signal, cwd, handle,
         // Live progress callback — turns/usage from session subscription
         (turns, _status, usage) => {
           handle.turns = turns;
@@ -333,59 +319,48 @@ export function spawnSubagentAsync(
           syncWidgetFromRegistry(pi);
         },
       );
-      // If already aborted by crew_abort, skip persist + steering
-      // (crew_abort already handled those).
-      const finalStatus = handle.status !== "aborted"
-        ? result.handle.status
-        : "aborted";
 
-      // Guard: don't overwrite "aborted" set by crew_abort via registry
-      if (handle.status !== "aborted") {
-        handle.status = result.handle.status;
-      }
-      handle.turns = result.handle.turns;
-      handle.session = result.session;
-      handle.usage = result.handle.usage;
+      // handle.status, handle.turns, handle.session, handle.usage
+      // are already set in-place by spawnSubagentSession
 
-      if (finalStatus === "aborted") {
+      if (handle.status === "aborted") {
         // Already handled by crew_abort — just sync widget
         syncWidgetFromRegistry(pi);
       } else {
         // Persist result
         pi.appendEntry("crew-subagent-result", {
-          id: result.handle.id,
-          agentName: result.handle.agentName,
-          output: result.output,
-          usage: result.handle.usage,
-          status: finalStatus,
+          id: handle.id,
+          agentName: handle.agentName,
+          output,
+          usage: handle.usage,
+          status: handle.status,
           completedAt: Date.now(),
-          sessionFile: result.sessionFile,
+          sessionFile,
         });
 
         // Update widget
         syncWidgetFromRegistry(pi);
 
-        // Kirim hasil sebagai steering message
-        if (finalStatus === "completed") {
+        // Send result as steering message
+        if (handle.status === "completed") {
           pi.sendMessage(
             {
               customType: "crew-subagent-result",
-              content: `✅ **${agentConfig.name}** (${handle.id}) completed:\n\n${result.output}`,
+              content: `✅ **${agentConfig.name}** (${handle.id}) completed:\n\n${output}`,
               display: true,
               details: {
                 subagentId: handle.id,
                 agentName: agentConfig.name,
-                output: result.output,
-                usage: result.handle.usage,
-                turns: result.handle.turns,
-                sessionFile: result.sessionFile,
+                output,
+                usage: handle.usage,
+                turns: handle.turns,
+                sessionFile,
               },
             },
             { deliverAs: "steer", triggerTurn: true },
           );
         } else {
-          const lastAssistant = getLastAssistantMessage(result.session.messages);
-          const errorMsg = lastAssistant?.errorMessage || "(no output)";
+          const errorMsg = output || "(no output)";
           pi.sendMessage(
             {
               customType: "crew-subagent-error",
