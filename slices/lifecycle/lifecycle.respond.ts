@@ -5,8 +5,7 @@
 import { type ExtensionAPI, type ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { Text } from "@earendil-works/pi-tui";
-import { getMessageBus } from "../comms/comms.bus";
-import { persistMessage } from "../comms/comms.persistence";
+import { getMessageBus, persistMessage } from "../comms/comms";
 import { getAgentRegistry } from "../agents/agents.registry";
 import { validateOwnership } from "./lifecycle.shared";
 

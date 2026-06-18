@@ -27,9 +27,7 @@ import { registerPromptInjector, setPromptConfig } from "./slices/prompt/prompt.
 import { registerChainTool } from "./slices/chain/chain.tool";
 
 // ─── Comms ──────────────────────────────────────────────────────
-import { registerCommsRelay } from "./slices/comms/comms.relay";
-import { getMessageBus, resetMessageBus } from "./slices/comms/comms.bus";
-import { restoreBusState } from "./slices/comms/comms.persistence";
+import { getMessageBus, resetMessageBus, restoreBusState, registerCommsRelay } from "./slices/comms/comms";
 
 // ─── Lifecycle ──────────────────────────────────────────────────
 import { registerAbortTool } from "./slices/lifecycle/lifecycle.abort";

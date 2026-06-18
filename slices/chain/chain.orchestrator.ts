@@ -11,7 +11,7 @@ import { getAgentRegistry } from "../agents/agents.registry";
 import { spawnSubagentSession } from "../spawn/spawn.manager";
 import { syncWidgetFromRegistry } from "../widget/widget.updater";
 import { CHAIN_PLACEHOLDER, type ChainProgress, type ChainStepConfig, type ChainStepResult } from "./chain.types";
-import { getMessageBus } from "../comms/comms.bus";
+import { getMessageBus } from "../comms/comms";
 
 // ─── Inter-Agent Marker Protocol ─────────────────────────────────
 

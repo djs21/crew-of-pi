@@ -5,7 +5,7 @@
 | 2 | **Unify lifecycle triplet** — shared ownership validation for abort/done/respond | ✅ Done | 2025-06-18 |
 | 1 | **Collapse agent discovery pipeline** — 5 files → 2 (config, frontmatter, types merged into discovery) | ✅ Done | 2025-06-18 |
 | 3 | **Eliminate dual handle in spawn** — ONE handle per subagent, mutated in-place | ✅ Done | 2025-06-18 |
-| 4 | Collapse comms slice (4 files → 1) | ⏳ Pending | — |
+| 4 | **Collapse comms slice** — 4 files → 1 (bus, relay, persistence, types merged) | ✅ Done | 2025-06-18 |
 | 5 | Chain step type dedup | ⏳ Pending | — |
 
 ---
@@ -105,3 +105,43 @@ slices/agents/
 | `finalStatus` variable to reconcile inner vs outer | `handle.status` is the single source of truth |
 | Guards needed to prevent status overwrite | Guards still exist but are fallbacks, not workarounds |
 | Chain ORM had `spawnResult.handle.*` copy pattern | Chain reads `chainHandle.status` directly |
+
+---
+
+## #4: Collapse Comms Slice
+
+**Date:** 2025-06-18
+
+### Motivation
+
+Four files for one concept. `comms.relay.ts` (67 lines) was a single subscription on the bus. `comms.persistence.ts` (54 lines) was three functions. `comms.types.ts` (27 lines) was only imported from within the slice. Deletion test: delete all 4 → zero complexity moves (all logic stays in one file).
+
+### What Changed
+
+- Merged: `comms.bus.ts`, `comms.relay.ts`, `comms.persistence.ts`, `comms.types.ts` → into `comms.ts`
+- Made `CHANNEL_BROADCAST` and `CHANNEL_MAIN` private constants (no external importers)
+- Made `CommsChannel` and `CommsSubscription` private interfaces (no external importers)
+- Made `loadPersistedMessages` private (only used by `restoreBusState`)
+
+### File Changes
+
+```
+slices/comms/
+├── comms.ts      — 225 lines (was 136+67+54+27 = 284), owns full comms lifecycle
+```
+
+*Deleted: comms.bus.ts, comms.relay.ts, comms.persistence.ts, comms.types.ts*
+
+### Depth Gained
+
+| Before | After |
+|--------|-------|
+| 4 files for bus + relay + persistence + types | 1 file: all comms concerns in one module |
+| Cross-slice imports: 3 separate paths | 1 import path: `../comms/comms` |
+| 2 private + 4 exported = 6 surface | 3 private + 3 exported = cleaner surface |
+
+### Cross-slice imports consolidated
+
+- `index.ts`: 3 imports → 1 (`getMessageBus`, `resetMessageBus`, `restoreBusState`, `registerCommsRelay`)
+- `chain.orchestrator.ts`: `getMessageBus` from `comms.ts`
+- `lifecycle.respond.ts`: 2 imports → 1 (`getMessageBus`, `persistMessage`)
