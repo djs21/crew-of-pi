@@ -2,6 +2,8 @@
  * Chain types — sequential subagent workflow definitions.
  */
 
+import type { UsageStats } from "../../shared/types";
+
 export interface ChainStepConfig {
   agent: string;
   task: string;
@@ -28,6 +30,7 @@ export interface ChainStepResult {
   output: string;
   exitCode: number;
   turns: number;
+  usage: UsageStats;
   errorMessage?: string;
 }
 

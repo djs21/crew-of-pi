@@ -82,36 +82,6 @@ export interface SpawnResult {
   status: SubagentStatus;
 }
 
-// ─── Chain Types ────────────────────────────────────────────────
-
-export interface ChainStep {
-  agent: string;
-  task: string;
-  cwd?: string;
-}
-
-export interface ChainConfig {
-  chain: ChainStep[];
-  stopOnError?: boolean;
-}
-
-export interface ChainHandle {
-  id: string;
-  steps: ChainStep[];
-  currentStep: number;
-  status: "running" | "completed" | "failed" | "aborted";
-  results: ChainStepResult[];
-}
-
-export interface ChainStepResult {
-  step: number;
-  agent: string;
-  task: string;
-  output: string;
-  exitCode: number;
-  usage: UsageStats;
-  errorMessage?: string;
-}
 
 // ─── Communication Types ────────────────────────────────────────
 

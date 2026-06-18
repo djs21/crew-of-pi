@@ -6,7 +6,7 @@
 | 1 | **Collapse agent discovery pipeline** — 5 files → 2 (config, frontmatter, types merged into discovery) | ✅ Done | 2025-06-18 |
 | 3 | **Eliminate dual handle in spawn** — ONE handle per subagent, mutated in-place | ✅ Done | 2025-06-18 |
 | 4 | **Collapse comms slice** — 4 files → 1 (bus, relay, persistence, types merged) | ✅ Done | 2025-06-18 |
-| 5 | Chain step type dedup | ⏳ Pending | — |
+| 5 | **Chain step type dedup** — removed ChainStep/ChainConfig/ChainHandle/ChainStepResult from shared/types.ts, added usage field to chain.types.ts:ChainStepResult | ✅ Done | 2025-06-18 |
 
 ---
 
@@ -145,3 +145,26 @@ slices/comms/
 - `index.ts`: 3 imports → 1 (`getMessageBus`, `resetMessageBus`, `restoreBusState`, `registerCommsRelay`)
 - `chain.orchestrator.ts`: `getMessageBus` from `comms.ts`
 - `lifecycle.respond.ts`: 2 imports → 1 (`getMessageBus`, `persistMessage`)
+
+---
+
+## #5: Chain Step Type Dedup
+
+**Date:** 2025-06-18
+
+### Motivation
+
+Two sources of truth for chain types. `shared/types.ts` defined `ChainStep`, `ChainConfig`, `ChainHandle`, `ChainStepResult` — all duplicates of `chain.types.ts`. No code outside the chain slice imported them. Vertical slice principle says chain owns its types.
+
+### What Changed
+
+- Removed `ChainStep`, `ChainConfig`, `ChainHandle`, `ChainStepResult` from `shared/types.ts`
+- Added `usage: UsageStats` (with import) to `chain.types.ts:ChainStepResult` — was missing before
+- Updated `chain.orchestrator.ts` to populate `usage` field from `chainHandle.usage`
+
+### Depth Gained
+
+| Before | After |
+|--------|-------|
+| Chain types duplicated in shared/types.ts | One source of truth in chain.types.ts |
+| Chain step results missing usage tracking | Usage tracked per step |

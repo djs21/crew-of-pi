@@ -190,6 +190,7 @@ export async function executeChain(options: ChainExecutionOptions): Promise<Chai
       output: cleanText || spawnResult.output,
       exitCode: chainHandle.status === "failed" || chainHandle.status === "aborted" ? 1 : 0,
       turns: chainHandle.turns,
+      usage: chainHandle.usage,
       errorMessage: chainHandle.status === "failed" ? (spawnResult.output || "(failed)") : undefined,
     };
 
