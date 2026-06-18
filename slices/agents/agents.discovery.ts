@@ -1,6 +1,12 @@
 /**
  * Agent discovery — discovers agents from user, project, and bundled locations.
  * Extension resolver: supports path-based (absolute/relative/~) and pi-package (npm:/git:).
+ *
+ * This file is the consolidated agent discovery pipeline:
+ *   .md file → frontmatter parsing → extension resolution → config overrides → cache
+ *
+ * Separated into: agents.registry.ts (query interface over discovery cache).
+ * Deleted (was pass-through): agents.config.ts, agents.frontmatter.ts, agents.types.ts
  */
 
 import * as fs from "node:fs";
@@ -8,11 +14,44 @@ import * as os from "node:os";
 import * as path from "node:path";
 import {
   getAgentDir,
+  parseFrontmatter as parseFrontmatterSDK,
 } from "@earendil-works/pi-coding-agent";
 import type { AgentConfig, AgentDiscoveryResult, AgentDiscoveryWarning, AgentExtensionRef, AgentScope } from "../../shared/types";
-import type { FrontmatterFields } from "./agents.types";
-import { parseFrontmatter } from "./agents.frontmatter";
-import { loadCrewConfig, applyConfigOverrides } from "./agents.config";
+
+// ─── Slice Types (was agents.types.ts) ──────────────────────────
+
+export interface FrontmatterFields {
+  name?: string;
+  description?: string;
+  tools?: string;
+  model?: string;
+  thinking?: string;
+  skills?: string;
+  extensions?: string[];
+  interactive?: string;
+  compaction?: string;
+}
+
+interface ParsedAgentDoc {
+  frontmatter: FrontmatterFields;
+  body: string;
+  filePath: string;
+  source: AgentConfig["source"];
+}
+
+// ─── Config Override Types (was agents.config.ts) ───────────────
+
+interface AgentOverride {
+  model?: string;
+  tools?: string[];
+  extensions?: string[];
+  thinking?: string;
+  [key: string]: any;
+}
+
+interface CrewConfig {
+  agents: Record<string, AgentOverride>;
+}
 
 // ─── Validation ─────────────────────────────────────────────────
 
@@ -55,18 +94,96 @@ function parseThinking(raw: unknown): { thinking?: string; warning?: AgentDiscov
   return { thinking: raw };
 }
 
-// ─── Extension Resolver ─────────────────────────────────────────
+// ─── YAML Frontmatter Parser (was agents.frontmatter.ts) ────────
 
 /**
- * Resolve an extension reference from an agent definition.
- * Supports:
- *   - npm:@scope/name (pi-package from npm)
- *   - git:github.com/user/repo (pi-package from git)
- *   - /absolute/path (absolute file path)
- *   - ~/path (home directory expansion)
- *   - relative/path (relative to agent .md file directory)
+ * Parse frontmatter from a markdown string using the pi SDK parser.
  */
-export function resolveExtension(ref: string, agentDir: string): AgentExtensionRef {
+function parseFrontmatter(content: string): {
+  frontmatter: FrontmatterFields;
+  body: string;
+} {
+  try {
+    const parsed = parseFrontmatterSDK<Record<string, unknown>>(content);
+    return {
+      frontmatter: parsed.frontmatter as unknown as FrontmatterFields,
+      body: parsed.body,
+    };
+  } catch {
+    return { frontmatter: {}, body: content };
+  }
+}
+
+/**
+ * Validate parsed frontmatter has required fields.
+ */
+export function validateAgentFrontmatter(
+  frontmatter: FrontmatterFields,
+  filePath: string,
+): string[] {
+  const errors: string[] = [];
+
+  if (!frontmatter.name) {
+    errors.push(`Agent at ${filePath} missing required field: name`);
+  } else if (!/^[\w.-]+$/.test(frontmatter.name)) {
+    errors.push(`Agent '${frontmatter.name}': name must contain only word chars, dots, and hyphens`);
+  }
+
+  if (!frontmatter.description) {
+    errors.push(`Agent '${frontmatter.name ?? "?"}' missing required field: description`);
+  }
+
+  return errors;
+}
+
+// ─── Config Loader (was agents.config.ts) ───────────────────────
+
+/**
+ * Load config from a file path. Returns null if file doesn't exist
+ * or can't be parsed as valid JSON.
+ */
+function loadConfigFile(filePath: string): CrewConfig | null {
+  try {
+    const raw = fs.readFileSync(filePath, "utf-8");
+    const parsed = JSON.parse(raw) as CrewConfig;
+
+    // Validate structure — must have an "agents" object
+    if (!parsed || typeof parsed !== "object" || typeof parsed.agents !== "object") {
+      return null;
+    }
+
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Load crew-of-pi config from both global and project locations.
+ * Project-level config overrides global config.
+ * Returns merged config or null if no config files found.
+ */
+export function loadCrewConfig(cwd: string): CrewConfig | null {
+  const globalPath = path.join(os.homedir(), ".pi", "agent", "crew-of-pi.json");
+  const projectPath = path.join(cwd, ".pi", "crew-of-pi.json");
+
+  const globalConfig = loadConfigFile(globalPath);
+  const projectConfig = loadConfigFile(projectPath);
+
+  if (!globalConfig && !projectConfig) return null;
+
+  // Merge: project overrides global (shallow merge per agent)
+  return {
+    agents: {
+      ...(globalConfig?.agents ?? {}),
+      ...(projectConfig?.agents ?? {}),
+    },
+  };
+}
+
+// ─── Extension Resolver ─────────────────────────────────────────
+
+function resolveExtension(ref: string, agentDir: string): AgentExtensionRef {
   // Mode 1: pi package (npm: atau git:)
   if (ref.startsWith("npm:") || ref.startsWith("git:")) {
     return { type: "pi-package", value: ref };
@@ -88,10 +205,7 @@ export function resolveExtension(ref: string, agentDir: string): AgentExtensionR
   return { type: "path", value: ref, resolved };
 }
 
-/**
- * Resolve all extensions for an agent config.
- */
-export function resolveExtensions(
+function resolveExtensions(
   rawExtensions: string[] | undefined,
   agentDir: string,
 ): AgentExtensionRef[] {
@@ -101,18 +215,14 @@ export function resolveExtensions(
 
 // ─── Agent Loading ──────────────────────────────────────────────
 
-export interface RawAgentDoc {
+interface RawAgentDoc {
   frontmatter: FrontmatterFields;
   body: string;
   filePath: string;
   source: AgentConfig["source"];
 }
 
-/**
- * Load agent config from a parsed .md file.
- * Returns null if required fields missing; collects warnings for invalid optional fields.
- */
-export function loadAgentFromDoc(doc: RawAgentDoc): { agent: AgentConfig | null; warnings: AgentDiscoveryWarning[] } {
+function loadAgentFromDoc(doc: RawAgentDoc): { agent: AgentConfig | null; warnings: AgentDiscoveryWarning[] } {
   const fm = doc.frontmatter;
   const filePath = doc.filePath;
   const warnings: AgentDiscoveryWarning[] = [];
@@ -272,6 +382,56 @@ export function setBundledAgentsDir(dir: string) {
 function loadBundledAgents(): { agents: AgentConfig[]; warnings: AgentDiscoveryWarning[] } {
   if (!bundledAgentsDir) return { agents: [], warnings: [] };
   return loadAgentsFromDir(bundledAgentsDir, "bundled");
+}
+
+// ─── Config Override Application (was agents.config.ts) ─────────
+
+/**
+ * Apply config overrides to agent definitions.
+ * Returns a new array with overrides applied (does not mutate original).
+ */
+export function applyConfigOverrides(
+  agents: AgentConfig[],
+  config: CrewConfig,
+): AgentConfig[] {
+  if (!config.agents || Object.keys(config.agents).length === 0) {
+    return agents;
+  }
+
+  return agents.map((agent) => {
+    const overrides = config.agents[agent.name];
+    if (!overrides) return agent;
+
+    const updated = { ...agent };
+
+    if (overrides.model !== undefined) {
+      updated.model = overrides.model;
+    }
+
+    if (overrides.tools !== undefined) {
+      updated.tools = overrides.tools;
+    }
+
+    if (overrides.thinking !== undefined) {
+      updated.thinking = overrides.thinking;
+    }
+
+    if (overrides.extensions !== undefined) {
+      const agentDir = path.dirname(agent.filePath);
+      const rawExtensions = Array.isArray(overrides.extensions)
+        ? overrides.extensions
+        : [String(overrides.extensions)];
+      updated.extensions = resolveExtensions(rawExtensions, agentDir);
+    }
+
+    if (overrides.skills !== undefined) {
+      updated.skills = Array.isArray(overrides.skills)
+        ? overrides.skills.map(String)
+        : [String(overrides.skills)];
+    }
+
+    return updated;
+  });
 }
 
 // ─── Main Discovery ─────────────────────────────────────────────

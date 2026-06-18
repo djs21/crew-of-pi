@@ -5,7 +5,7 @@
 
 import type { AgentConfig, AgentDiscoveryWarning, AgentScope, SubagentHandle } from "../../shared/types";
 import { discoverAgents } from "./agents.discovery";
-import { loadCrewConfig, applyConfigOverrides } from "./agents.config";
+import { loadCrewConfig, applyConfigOverrides } from "./agents.discovery";
 
 /**
  * In-memory agent registry with running subagent tracking.

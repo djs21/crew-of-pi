@@ -1,66 +1,80 @@
-# Architecture Improvement — Unify Lifecycle Triplet
+# Architecture Improvements
 
-## Date
+| # | Candidate | Status | Date |
+|---|-----------|--------|------|
+| 2 | **Unify lifecycle triplet** — shared ownership validation for abort/done/respond | ✅ Done | 2025-06-18 |
+| 1 | **Collapse agent discovery pipeline** — 5 files → 2 (config, frontmatter, types merged into discovery) | ✅ Done | 2025-06-18 |
+| 3 | Eliminate dual handle in spawn | ⏳ Pending | — |
+| 4 | Collapse comms slice (4 files → 1) | ⏳ Pending | — |
+| 5 | Chain step type dedup | ⏳ Pending | — |
 
-2025-06-18
+---
 
-## Motivation
+## #2: Unify Lifecycle Triplet
 
-The lifecycle slice had three tools (`crew_abort`, `crew_done`, `crew_respond`) each inlining the same four-step pattern:
+**Date:** 2025-06-18
 
-1. Find handle in registry
-2. Validate session ownership
-3. Mutate registry/persist
-4. Sync widget
+### Motivation
 
-This caused bugs: `crew_abort` forgot to sync widget; `crew_done` didn't share `session.dispose()` logic. Each tool was a fragile copy of the same pattern.
+Three lifecycle tools inlined the same four-step pattern: find handle → validate ownership → mutate registry/persist → sync widget. Each was a fragile copy. `crew_abort` forgot widget sync; `crew_done` didn't share `session.dispose()`.
 
-## What Changed
+### What Changed
 
-### New file: `slices/lifecycle/lifecycle.shared.ts`
+#### New file: `slices/lifecycle/lifecycle.shared.ts`
 
-Extracts two shared functions:
+- **`validateOwnership(subagentId, registry, callerSessionId)`** — returns `{ ok, handle }` or standardized error response. Replaces inline pattern in all 3 tools.
+- **`doneSubagent(handle, registry, pi)`** — marks completed, persists, syncs widget.
 
-- **`validateOwnership(subagentId, registry, callerSessionId)`** — returns `{ ok, handle }` or a standardized error response (`not found` / `foreign session`). All three tools now use this instead of inline `getRunningById` + ownership check.
-- **`doneSubagent(handle, registry, pi)`** — marks handle as completed, persists result entry, syncs widget. Used by `crew_done` (and any future lifecycle tool).
+#### Refactored tools
 
-### Refactored: `slices/lifecycle/lifecycle.done.ts`
+- `lifecycle.abort.ts` — single-id path uses `validateOwnership`
+- `lifecycle.done.ts` — ~40 lines (was 84), uses both shared helpers
+- `lifecycle.respond.ts` — uses `validateOwnership`, respond-specific logic stays
 
-Before: ~65 lines with inline find-validate-mark-persist-sync.
-After: ~40 lines — calls `validateOwnership` then `doneSubagent`.
-
-### Refactored: `slices/lifecycle/lifecycle.respond.ts`
-
-Before: inline find + validate + respond logic interleaved.
-After: `validateOwnership` separates concern; respond-specific logic (interactive check, bus send) remains in the tool.
-
-### Refactored: `slices/lifecycle/lifecycle.abort.ts`
-
-Single-id path: inline find + validate -> `validateOwnership`.
-`abortSubagent` helper (extracted in earlier abort-race fix) remains as-is — it owns the multi-layer abort sequence (AbortController, session.abort, session.dispose, persist, widget sync).
-
-## Depth Gained
+### Depth Gained
 
 | Before | After |
 |--------|-------|
-| 3 files, each inlining the same pattern | 1 shared module + 3 thin tools |
-| Ownership validation in 3 places (drift risk) | Ownership validation in 1 place |
+| 3 files inlining same pattern | 1 shared module + 3 thin tools |
+| Ownership validation in 3 places | Ownership validation in 1 place |
 | Widget sync decisions scattered | Widget sync guaranteed by shared helpers |
-| Adding a 4th lifecycle tool = copy-paste 4 steps | Adding = call `validateOwnership` + call shared operation |
 
-## File Changes
+---
+
+## #1: Collapse Agent Discovery Pipeline
+
+**Date:** 2025-06-18
+
+### Motivation
+
+Five files for one linear pipeline. `frontmatter.ts` (59 lines) wraps one SDK call. `config.ts` (148 lines) is three functions loaded by `discovery.ts` and `registry.ts`. `types.ts` (36 lines) is two interfaces used within the slice. Deletion test: delete frontmatter.ts, config.ts, types.ts → 0 complexity moves to callers.
+
+### What Changed
+
+- Merged: `agents.frontmatter.ts`, `agents.config.ts`, `agents.types.ts` → into `agents.discovery.ts`
+- Kept: `agents.registry.ts` — query interface over discovery cache (separate concern: running subagent tracking)
+- Removed unused exports: `ExtensionResolverResult`, `DiscoveryOptions`, `makeParsedDoc`
+
+### File Changes
 
 ```
-slices/lifecycle/
-├── lifecycle.abort.ts    — 14 lines shorter, uses validateOwnership
-├── lifecycle.done.ts     — 25 lines shorter, uses validateOwnership + doneSubagent
-├── lifecycle.respond.ts  — 12 lines shorter, uses validateOwnership
-├── lifecycle.shared.ts   — NEW: validateOwnership(), doneSubagent()
-└── lifecycle.types.ts    — unchanged
+slices/agents/
+├── agents.discovery.ts   — 556 lines (was 366), now owns full discovery pipeline
+├── agents.registry.ts    — unchanged (1 import path updated)
 ```
 
-## Not Changed
+*Deleted: agents.config.ts, agents.frontmatter.ts, agents.types.ts*
 
-- `lifecycle.types.ts` — kept as-is (used by other slices via import)
-- `AbortSubagent()` helper — stays in `lifecycle.abort.ts` (abort-specific multi-step)
-- Tool registration/renderCall/renderResult — tool-specific UI code stays in each tool file
+### Depth Gained
+
+| Before | After |
+|--------|-------|
+| 5 files for one pipeline | 2 files: discovery (deep) + registry (query seam) |
+| Pipeline understanding requires 5 file reads | Pipeline understanding requires 1 file read |
+| Config + frontmatter = pass-through wrappers | Logic concentrated, exports intentional |
+
+### Cross-slice imports unchanged
+
+- `index.ts`: `setBundledAgentsDir` still from `agents.discovery`
+- `spawn.tool.ts`, `chain.orchestrator.ts`: `findAgent` still from `agents.discovery`
+- All `getAgentRegistry` still from `agents.registry`
