@@ -6,7 +6,50 @@ import { type ExtensionAPI, type ExtensionContext } from "@earendil-works/pi-cod
 import { Type } from "typebox";
 import { Text } from "@earendil-works/pi-tui";
 import { getAgentRegistry } from "../agents/agents.registry";
+import { syncWidgetFromRegistry } from "../widget/widget.updater";
+import { validateOwnership } from "./lifecycle.shared";
 import type { LifecycleResult } from "./lifecycle.types";
+import type { SubagentHandle } from "../../shared/types";
+
+/**
+ * Centralized abort logic:
+ * 1. Call abortController.abort() first — works even before session exists
+ * 2. Call session.abort() — works if session already exists
+ * 3. Dispose session to free resources
+ * 4. Persist result entry
+ */
+function abortSubagent(
+  handle: SubagentHandle,
+  registry: ReturnType<typeof getAgentRegistry>,
+  pi: ExtensionAPI,
+): boolean {
+  // Fire dedicated AbortController (works even before session creation)
+  handle.abortController?.abort();
+
+  // Also abort session directly (covers case where session exists but
+  // abortController signal listener hasn't fired yet)
+  handle.session?.abortCompaction?.();
+  handle.session?.abort().catch(() => {});
+
+  // Dispose session to free resources
+  handle.session?.dispose();
+
+  // Set registry status
+  registry.updateRunning(handle.id, { status: "aborted" });
+
+  // Persist result
+  pi.appendEntry("crew-subagent-result", {
+    id: handle.id,
+    agentName: handle.agentName,
+    status: "aborted",
+    abortedAt: Date.now(),
+  });
+
+  // Sync widget so abort is reflected immediately in the UI
+  syncWidgetFromRegistry(pi);
+
+  return true;
+}
 
 const AbortParams = Type.Object({
   subagent_id: Type.Optional(Type.String({ description: "ID of specific subagent to abort" })),
@@ -39,20 +82,14 @@ export function registerAbortTool(pi: ExtensionAPI): void {
           // Skip agents owned by other sessions
           if (handle.ownerSession && handle.ownerSession !== callerSessionId) continue;
 
-          handle.session?.abort().catch(() => {});
-          registry.updateRunning(handle.id, { status: "aborted" });
-          results.push({
-            success: true,
-            subagentId: handle.id,
-            status: "aborted",
-            message: `Aborted ${handle.agentName} (${handle.id})`,
-          });
-          pi.appendEntry("crew-subagent-result", {
-            id: handle.id,
-            agentName: handle.agentName,
-            status: "aborted",
-            abortedAt: Date.now(),
-          });
+          if (abortSubagent(handle, registry, pi)) {
+            results.push({
+              success: true,
+              subagentId: handle.id,
+              status: "aborted",
+              message: `Aborted ${handle.agentName} (${handle.id})`,
+            });
+          }
         }
 
         return {
@@ -62,37 +99,14 @@ export function registerAbortTool(pi: ExtensionAPI): void {
       }
 
       if (params.subagent_id) {
-        const handle = registry.getRunningById(params.subagent_id);
-        if (!handle) {
-          return {
-            content: [{ type: "text", text: `No running subagent found with id: ${params.subagent_id}` }],
-            details: { error: "not found" },
-            isError: true,
-          };
-        }
+        const owned = validateOwnership(params.subagent_id, registry, callerSessionId);
+        if (!owned.ok) return owned.errorResponse;
 
-        // Validate session ownership
-        if (handle.ownerSession && handle.ownerSession !== callerSessionId) {
-          return {
-            content: [{ type: "text", text: `Subagent ${params.subagent_id} belongs to a different session and cannot be aborted from here.` }],
-            details: { error: "foreign session" },
-            isError: true,
-          };
-        }
-
-        handle.session?.abort().catch(() => {});
-        registry.updateRunning(params.subagent_id, { status: "aborted" });
-
-        pi.appendEntry("crew-subagent-result", {
-          id: handle.id,
-          agentName: handle.agentName,
-          status: "aborted",
-          abortedAt: Date.now(),
-        });
+        abortSubagent(owned.handle, registry, pi);
 
         return {
-          content: [{ type: "text", text: `Aborted ${handle.agentName} (${handle.id}).` }],
-          details: { subagentId: handle.id, status: "aborted" },
+          content: [{ type: "text", text: `Aborted ${owned.handle.agentName} (${owned.handle.id}).` }],
+          details: { subagentId: owned.handle.id, status: "aborted" },
         };
       }
 

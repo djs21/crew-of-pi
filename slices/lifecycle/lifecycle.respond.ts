@@ -8,7 +8,7 @@ import { Text } from "@earendil-works/pi-tui";
 import { getMessageBus } from "../comms/comms.bus";
 import { persistMessage } from "../comms/comms.persistence";
 import { getAgentRegistry } from "../agents/agents.registry";
-import type { LifecycleResult } from "./lifecycle.types";
+import { validateOwnership } from "./lifecycle.shared";
 
 const RespondParams = Type.Object({
   subagent_id: Type.String({ description: "ID of the interactive subagent to respond to" }),
@@ -32,26 +32,11 @@ export function registerRespondTool(pi: ExtensionAPI): void {
     async execute(_toolCallId, params, _signal, _onUpdate, ctx: ExtensionContext) {
       const registry = getAgentRegistry();
       const callerSessionId = ctx.sessionManager.getSessionId();
-      const handle = registry.getRunningById(params.subagent_id);
+      const owned = validateOwnership(params.subagent_id, registry, callerSessionId);
 
-      if (!handle) {
-        return {
-          content: [{ type: "text", text: `No running subagent found with id: ${params.subagent_id}` }],
-          details: { error: "not found" },
-          isError: true,
-        };
-      }
+      if (!owned.ok) return owned.errorResponse;
 
-      // Validate session ownership
-      if (handle.ownerSession && handle.ownerSession !== callerSessionId) {
-        return {
-          content: [{ type: "text", text: `Subagent ${params.subagent_id} belongs to a different session.` }],
-          details: { error: "foreign session" },
-          isError: true,
-        };
-      }
-
-      if (!handle.interactive) {
+      if (!owned.handle.interactive) {
         return {
           content: [{ type: "text", text: `Subagent ${params.subagent_id} is not interactive. Spawn with interactive: true for multi-turn.` }],
           details: { error: "not interactive" },
@@ -72,12 +57,12 @@ export function registerRespondTool(pi: ExtensionAPI): void {
       persistMessage(pi, sentMessage);
 
       // Send response to subagent session (fire-and-forget prompt)
-      if (handle.session) {
-        handle.session.prompt(params.message).catch(() => {});
+      if (owned.handle.session) {
+        owned.handle.session.prompt(params.message).catch(() => {});
       }
 
       return {
-        content: [{ type: "text", text: `Response sent to ${handle.agentName} (${params.subagent_id}).` }],
+        content: [{ type: "text", text: `Response sent to ${owned.handle.agentName} (${params.subagent_id}).` }],
         details: {
           subagentId: params.subagent_id,
           messageId: sentMessage.id,
