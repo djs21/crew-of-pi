@@ -59,6 +59,7 @@ export interface SubagentHandle {
   pid?: number;
   proc?: any;  // ChildProcess reference for interactive subagents
   session?: any; // AgentSession reference (post-migration)
+  abortController?: AbortController; // dedicated abort controller for this subagent
   task: string;
   model?: string;
   interactive: boolean;

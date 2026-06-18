@@ -240,7 +240,10 @@ export async function spawnSubagentProcess(
     handle.turns = usageAccum.turns;
     handle.usage = usageAccum;
   } catch (err: any) {
-    handle.status = "failed";
+    // Guard: don't overwrite "aborted" set by crew_abort or abort handler
+    if (handle.status !== "aborted") {
+      handle.status = "failed";
+    }
     usageAccum.turns = Math.max(0, usageAccum.turns);
     handle.turns = usageAccum.turns;
     handle.usage = usageAccum;
@@ -260,11 +263,16 @@ export function spawnSubagentAsync(
   pi: ExtensionAPI,
   agentConfig: AgentConfig,
   task: string,
-  signal: AbortSignal | undefined,
+  _signal: AbortSignal | undefined,
   cwd: string,
   ownerSession?: string,
 ): SubagentHandle {
   const id = generateId(agentConfig.name);
+
+  // Create dedicated AbortController for this subagent NOW
+  // before any async work. This lets crew_abort work even when
+  // the subagent is waiting for a concurrency slot.
+  const abortController = new AbortController();
 
   const handle: SubagentHandle = {
     id,
@@ -277,6 +285,7 @@ export function spawnSubagentAsync(
     turns: 0,
     usage: { ...INITIAL_USAGE },
     ownerSession,
+    abortController,
   };
 
   // Persist spawn state
@@ -296,12 +305,27 @@ export function spawnSubagentAsync(
   // Background async spawn with concurrency limit (tidak await — non-blocking)
   (async () => {
     await concurrencyTracker.acquire();
+
+    // If abort was called while waiting for concurrency slot, bail immediately
+    if (abortController.signal.aborted) {
+      handle.status = "aborted";
+      syncWidgetFromRegistry(pi);
+      pi.appendEntry("crew-subagent-result", {
+        id: handle.id,
+        agentName: agentConfig.name,
+        status: "aborted",
+        abortedAt: Date.now(),
+        reason: "aborted before start",
+      });
+      return;
+    }
+
     // Mark as running now that process is actually starting
     handle.status = "running";
     syncWidgetFromRegistry(pi);
     try {
       const result = await spawnSubagentProcess(
-        agentConfig, task, signal, cwd,
+        agentConfig, task, abortController.signal, cwd,
         // Live progress callback — turns/usage from session subscription
         (turns, _status, usage) => {
           handle.turns = turns;
@@ -309,70 +333,90 @@ export function spawnSubagentAsync(
           syncWidgetFromRegistry(pi);
         },
       );
-      handle.status = result.handle.status;
+      // If already aborted by crew_abort, skip persist + steering
+      // (crew_abort already handled those).
+      const finalStatus = handle.status !== "aborted"
+        ? result.handle.status
+        : "aborted";
+
+      // Guard: don't overwrite "aborted" set by crew_abort via registry
+      if (handle.status !== "aborted") {
+        handle.status = result.handle.status;
+      }
       handle.turns = result.handle.turns;
       handle.session = result.session;
       handle.usage = result.handle.usage;
 
-      // Persist result
-      pi.appendEntry("crew-subagent-result", {
-        id: result.handle.id,
-        agentName: result.handle.agentName,
-        output: result.output,
-        usage: result.handle.usage,
-        status: result.handle.status,
-        completedAt: Date.now(),
-        sessionFile: result.sessionFile,
-      });
-
-      // Update widget
-      syncWidgetFromRegistry(pi);
-
-      // Kirim hasil sebagai steering message
-      if (result.handle.status === "completed") {
-        pi.sendMessage(
-          {
-            customType: "crew-subagent-result",
-            content: `✅ **${agentConfig.name}** (${handle.id}) completed:\n\n${result.output}`,
-            display: true,
-            details: {
-              subagentId: handle.id,
-              agentName: agentConfig.name,
-              output: result.output,
-              usage: result.handle.usage,
-              turns: result.handle.turns,
-              sessionFile: result.sessionFile,
-            },
-          },
-          { deliverAs: "steer", triggerTurn: true },
-        );
+      if (finalStatus === "aborted") {
+        // Already handled by crew_abort — just sync widget
+        syncWidgetFromRegistry(pi);
       } else {
-        const lastAssistant = getLastAssistantMessage(result.session.messages);
-        const errorMsg = lastAssistant?.errorMessage || "(no output)";
+        // Persist result
+        pi.appendEntry("crew-subagent-result", {
+          id: result.handle.id,
+          agentName: result.handle.agentName,
+          output: result.output,
+          usage: result.handle.usage,
+          status: finalStatus,
+          completedAt: Date.now(),
+          sessionFile: result.sessionFile,
+        });
+
+        // Update widget
+        syncWidgetFromRegistry(pi);
+
+        // Kirim hasil sebagai steering message
+        if (finalStatus === "completed") {
+          pi.sendMessage(
+            {
+              customType: "crew-subagent-result",
+              content: `✅ **${agentConfig.name}** (${handle.id}) completed:\n\n${result.output}`,
+              display: true,
+              details: {
+                subagentId: handle.id,
+                agentName: agentConfig.name,
+                output: result.output,
+                usage: result.handle.usage,
+                turns: result.handle.turns,
+                sessionFile: result.sessionFile,
+              },
+            },
+            { deliverAs: "steer", triggerTurn: true },
+          );
+        } else {
+          const lastAssistant = getLastAssistantMessage(result.session.messages);
+          const errorMsg = lastAssistant?.errorMessage || "(no output)";
+          pi.sendMessage(
+            {
+              customType: "crew-subagent-error",
+              content: `❌ **${agentConfig.name}** (${handle.id}) failed:\n\n${errorMsg}`,
+              display: true,
+              details: {
+                subagentId: handle.id,
+                agentName: agentConfig.name,
+                error: errorMsg,
+              },
+            },
+            { deliverAs: "steer", triggerTurn: true },
+          );
+        }
+      }
+    } catch (error: any) {
+      // If already aborted by crew_abort, don't send bogus crash message
+      if (handle.status === "aborted") {
+        syncWidgetFromRegistry(pi);
+      } else {
+        handle.status = "failed";
         pi.sendMessage(
           {
             customType: "crew-subagent-error",
-            content: `❌ **${agentConfig.name}** (${handle.id}) failed:\n\n${errorMsg}`,
+            content: `❌ **${agentConfig.name}** (${handle.id}) crashed: ${error.message}`,
             display: true,
-            details: {
-              subagentId: handle.id,
-              agentName: agentConfig.name,
-              error: errorMsg,
-            },
+            details: { subagentId: handle.id, agentName: agentConfig.name, error: error.message },
           },
           { deliverAs: "steer", triggerTurn: true },
         );
       }
-    } catch (error: any) {
-      pi.sendMessage(
-        {
-          customType: "crew-subagent-error",
-          content: `❌ **${agentConfig.name}** (${handle.id}) crashed: ${error.message}`,
-          display: true,
-          details: { subagentId: handle.id, agentName: agentConfig.name, error: error.message },
-        },
-        { deliverAs: "steer", triggerTurn: true },
-      );
     } finally {
       concurrencyTracker.release();
     }
