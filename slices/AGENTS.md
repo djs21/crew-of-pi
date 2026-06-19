@@ -17,6 +17,7 @@ Slices are designed to be independently developable, testable, and removable by 
 - **slices/lifecycle/** — `crew_abort`, `crew_respond`, `crew_done` tools
 - **slices/widget/** — TUI status widget renderer, store, and updater
 - **slices/crew-list/** — `crew_list` tool listing agents and running subagents
+- **slices/config/** — `/crew-of-pi config` slash command: interactive config editor for model, extensions, and skills per agent
 
 ## Local Contracts
 

@@ -4,7 +4,7 @@
 
 Spawn isolated subagents that work in parallel while your main session stays responsive. Each subagent runs in its own context window with specialized tools, skills, and extensions — orchestrated by a main agent that delegates automatically.
 
-> Inspired by [pi-crew](https://github.com/melihmucuk/pi-crew) — extended with vertical slice architecture, per-agent extensibility, and write/edit blocking for cost-efficient delegation.
+> Inspired by [pi-crew](https://github.com/melihmucuk/pi-crew) — extended with vertical slice architecture, per-agent extensibility, write/edit blocking for cost-efficient delegation, and an interactive config wizard.
 
 ---
 
@@ -179,6 +179,39 @@ Shows all available subagents and running ones with status, turns, and costs.
 ```
 > crew_done subagent_id="crew-planner-xyz"
 ```
+
+---
+
+## Slash Commands
+
+### `/crew-of-pi config`
+
+Interactive config editor for `crew-of-pi.json`. Manages per-agent overrides without manually editing JSON files.
+
+| Subcommand | Description |
+|---|---|
+| `/crew-of-pi config` | Interactive wizard — pick an agent, then pick a field to edit |
+| `/crew-of-pi config show` | Display current config as plain text |
+| `/crew-of-pi config <agent> <field>` | Direct edit — skip wizard |
+| `/crew-of-pi help` | Usage information |
+
+**Editable fields per agent:**
+
+| Field | Select from | Custom input |
+|---|---|---|
+| `model` | All available models from `ctx.modelRegistry.getAll()`, grouped by provider | Manual `provider/model-id` |
+| `extensions` | Installed extensions from `~/.pi/agent/extensions/`, `settings.json` packages, and pluthenplay dev folders | Absolute path, `~/path`, `npm:`, `git:` |
+| `skills` | Installed skills from `~/.pi/agent/skills/` with SKILL.md detection | Absolute path, `~/path` |
+
+**Flow:**
+1. Choose an agent (worker, scout, researcher, planner, reviewer, or custom)
+2. Choose a field to edit
+3. Pick from available options or enter a custom value
+4. Automatically validates model format (`provider/model-id`) and path existence
+5. Saves to `~/.pi/agent/crew-of-pi.json`
+6. Notification: restart session for changes to take effect (`Ctrl+D` then `/start`)
+
+**Tab completion:** `/crew-of-pi conf<TAB>` auto-completes subcommands and agent names.
 
 ---
 
@@ -496,7 +529,9 @@ crew-of-pi/
 │   ├── chain/                  # Sequential multi-agent workflows
 │   ├── comms/                  # Inter-agent message bus
 │   ├── lifecycle/              # Abort, respond, done
-│   └── widget/                 # TUI status widget
+│   ├── widget/                 # TUI status widget
+│   ├── crew-list/              # crew_list tool
+│   └── config/                 # /crew-of-pi config slash command
 ├── agents/                     # Bundled subagent definitions (.md)
 └── prompts/                    # Workflow templates
 ```
@@ -505,6 +540,7 @@ crew-of-pi/
 - Each slice is self-contained — develop, test, and remove independently
 - Cross-slice communication only through `shared/types.ts` interfaces
 - Add/remove features by adding/removing slice imports in `index.ts`
+- Slash commands registered via `pi.registerCommand()` in their slice
 
 ---
 
