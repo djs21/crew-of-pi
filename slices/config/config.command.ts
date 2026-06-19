@@ -681,7 +681,7 @@ async function editMainAgentTools(config: CrewConfig, ctx: ExtensionCommandConte
   const success = writeConfig(config);
   if (success) {
     ctx.ui.notify("✅ Main agent tool config saved!", "info");
-    ctx.ui.notify("ℹ️ Restart session agar perubahan berlaku (Ctrl+D lalu /start)", "info");
+    ctx.ui.notify("ℹ️ Jalankan /reload agar perubahan langsung berlaku", "info");
   } else {
     ctx.ui.notify("❌ Gagal menyimpan config!", "error");
   }
@@ -841,7 +841,7 @@ async function editFieldForAgent(
   const success = writeConfig(config);
   if (success) {
     ctx.ui.notify(`✅ Config untuk "${agentName}" berhasil disimpan!`, "info");
-    ctx.ui.notify(`ℹ️ Restart session agar perubahan berlaku (Ctrl+D lalu /start)`, "info");
+    ctx.ui.notify(`ℹ️ Jalankan /reload agar perubahan langsung berlaku`, "info");
   } else {
     ctx.ui.notify(`❌ Gagal menyimpan config! Periksa permissions.`, "error");
   }
