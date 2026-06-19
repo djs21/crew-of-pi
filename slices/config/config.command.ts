@@ -1,721 +1,122 @@
 /**
- * /crew-of-pi slash command — interactive config editor for crew-of-pi.json
+ * /crew-of-pi slash command — thin orchestrator.
  *
- * Subcommands:
- *   /crew-of-pi config          — Interactive wizard (agent → field → edit)
- *   /crew-of-pi config show     — Show current config as plain text
- *   /crew-of-pi help            — Usage info
+ * Delegates to:
+ *   - config.wizard.ts       — agent config field wizards
+ *   - config.main-agent.ts   — main agent tool policy editor
+ *   - config.helpers.ts      — config I/O, formatting
+ *   - config.types.ts        — types & constants
  *
- * For each agent, allows editing:
- *   - model:        pick from available models
- *   - extensions:   pick from installed extensions + custom path
- *   - skills:       pick from installed skills + custom path
- *
- * For main agent, allows:
- *   - tools:        toggle enabled/disabled state for read, bash, grep, find, ls, write, edit
+ * Owns: command registration, argument completions, help text,
+ *       top-level handler routing, and per-agent edit flow.
  */
 
-import * as fs from "node:fs";
-import * as os from "node:os";
-import * as path from "node:path";
 import type { ExtensionAPI, ExtensionCommandContext, RegisteredCommand } from "@earendil-works/pi-coding-agent";
+import type { CrewConfig } from "./config.types";
+import { DEFAULT_DISABLED_TOOLS, ALL_MAIN_AGENT_TOOLS, MAIN_AGENT_KEY } from "./config.types";
+import { readConfig, writeConfig, getAgentNames } from "./config.helpers";
+import { pickAgent, pickField, editModel, editExtensions, editSkills } from "./config.wizard";
+import { editMainAgentTools } from "./config.main-agent";
 
-// ─── Types ──────────────────────────────────────────────────────
+// ─── Top-Level Handler ──────────────────────────────────────────
 
-interface AgentOverride {
-  model?: string;
-  extensions?: string[];
-  skills?: string[];
-  [key: string]: unknown;
-}
+async function handleCrewOfPiCommand(args: string, ctx: ExtensionCommandContext): Promise<void> {
+  const trimmed = args.trim().toLowerCase();
 
-interface MainAgentConfig {
-  disabledTools?: string[];
-}
-
-interface CrewConfig {
-  mainAgent?: MainAgentConfig;
-  agents?: Record<string, AgentOverride>;
-}
-
-/** All main-agent tools that can be toggled */
-const ALL_MAIN_AGENT_TOOLS = ["read", "bash", "grep", "find", "ls", "write", "edit"];
-
-/** Default disabled tools if no config is set */
-const DEFAULT_DISABLED_TOOLS = ["write", "edit"];
-
-// ─── Config Path ────────────────────────────────────────────────
-
-function getConfigPath(): string {
-  return path.join(os.homedir(), ".pi", "agent", "crew-of-pi.json");
-}
-
-// ─── Read/Write Config ──────────────────────────────────────────
-
-function readConfig(): CrewConfig {
-  const configPath = getConfigPath();
-  try {
-    const raw = fs.readFileSync(configPath, "utf-8");
-    const parsed = JSON.parse(raw) as CrewConfig;
-    if (parsed && typeof parsed === "object") {
-      // Normalize: ensure agents exists
-      if (!parsed.agents || typeof parsed.agents !== "object") {
-        parsed.agents = {};
-      }
-      return parsed;
-    }
-    return { agents: {} };
-  } catch {
-    return { agents: {} };
-  }
-}
-
-function writeConfig(config: CrewConfig): boolean {
-  const configPath = getConfigPath();
-  try {
-    fs.writeFileSync(configPath, JSON.stringify(config, null, 2) + "\n", "utf-8");
-    return true;
-  } catch (err) {
-    return false;
-  }
-}
-
-// ─── Discover Available Models ──────────────────────────────────
-
-function formatModelLabel(model: { provider: string; id: string; name?: string }): string {
-  const label = `${model.provider}/${model.id}`;
-  if (model.name) {
-    return `${model.name} (${label})`;
-  }
-  return label;
-}
-
-function getModelId(model: { provider: string; id: string }): string {
-  return `${model.provider}/${model.id}`;
-}
-
-// ─── Discover Installed Extensions ──────────────────────────────
-
-interface ExtensionOption {
-  label: string;
-  value: string;
-  type: "pi-package" | "path";
-}
-
-function discoverExtensions(): ExtensionOption[] {
-  const discovered: ExtensionOption[] = [];
-  const seen = new Set<string>();
-
-  // 1. Installed from ~/.pi/agent/extensions/ (folder-based)
-  const extDir = path.join(os.homedir(), ".pi", "agent", "extensions");
-  try {
-    if (fs.existsSync(extDir)) {
-      for (const entry of fs.readdirSync(extDir, { withFileTypes: true })) {
-        if (entry.isDirectory() && !entry.name.startsWith(".")) {
-          const extPath = path.join(extDir, entry.name);
-          // Check for config.json or index.ts as extension marker
-          if (fs.existsSync(path.join(extPath, "index.ts")) || fs.existsSync(path.join(extPath, "config.json"))) {
-            const label = `📦 ${entry.name} (local)`;
-            discovered.push({ label, value: extPath, type: "path" });
-            seen.add(extPath);
-          }
-        }
-      }
-    }
-  } catch {
-    // ignore
+  if (trimmed === "help" || trimmed === "" || trimmed === "--help" || trimmed === "-h") {
+    ctx.ui.notify(showHelp(), "info");
+    return;
   }
 
-  // 2. Pi packages from settings.json
-  const settingsPath = path.join(os.homedir(), ".pi", "agent", "settings.json");
-  try {
-    if (fs.existsSync(settingsPath)) {
-      const raw = fs.readFileSync(settingsPath, "utf-8");
-      const settings = JSON.parse(raw) as { packages?: string[] };
-      if (settings.packages && Array.isArray(settings.packages)) {
-        for (const pkg of settings.packages) {
-          if (!seen.has(pkg)) {
-            const label = `📦 ${pkg}`;
-            discovered.push({ label, value: pkg, type: "pi-package" });
-            seen.add(pkg);
-          }
-        }
-      }
-    }
-  } catch {
-    // ignore
+  if (trimmed === "config" || trimmed.startsWith("config ")) {
+    const subArgs = trimmed.startsWith("config ") ? trimmed.slice(7) : "";
+    await handleConfigSubcommand(subArgs, ctx);
+    return;
   }
 
-  // 3. Also look in pluthenplay/extensions for dev extensions
-  const ppExtDir = path.join(os.homedir(), ".pi", "agent", "pluthenplay", "extensions");
-  try {
-    if (fs.existsSync(ppExtDir)) {
-      for (const entry of fs.readdirSync(ppExtDir, { withFileTypes: true })) {
-        if (entry.isDirectory() && !entry.name.startsWith(".")) {
-          const extPath = path.join(ppExtDir, entry.name);
-          if (fs.existsSync(path.join(extPath, "index.ts"))) {
-            const key = `pluthenplay:${entry.name}`;
-            if (!seen.has(key)) {
-              const label = `🧪 ${entry.name} (dev)`;
-              discovered.push({ label, value: extPath, type: "path" });
-              seen.add(key);
-            }
-          }
-        }
-      }
-    }
-  } catch {
-    // ignore
+  ctx.ui.notify(`Unknown subcommand: "${trimmed}". Gunakan /crew-of-pi help`, "error");
+}
+
+// ─── Config Subcommand ──────────────────────────────────────────
+
+async function handleConfigSubcommand(args: string, ctx: ExtensionCommandContext): Promise<void> {
+  const trimmed = args.trim();
+
+  if (trimmed === "show") {
+    ctx.ui.notify(formatConfig(readConfig()), "info");
+    return;
   }
 
-  return discovered;
-}
+  // Direct edit: /crew-of-pi config <agent> <field>
+  const parts = trimmed.split(/\s+/);
+  const directAgentName = parts[0] && !["show", "help"].includes(parts[0]) ? parts[0] : undefined;
+  const directField = parts[1] && ["model", "extensions", "skills"].includes(parts[1]) ? parts[1] : undefined;
 
-// ─── Discover Installed Skills ──────────────────────────────────
-
-interface SkillOption {
-  label: string;
-  value: string;
-}
-
-function discoverSkills(): SkillOption[] {
-  const skills: SkillOption[] = [];
-  const skillsDir = path.join(os.homedir(), ".pi", "agent", "skills");
-
-  try {
-    if (fs.existsSync(skillsDir)) {
-      for (const entry of fs.readdirSync(skillsDir, { withFileTypes: true })) {
-        if (entry.isDirectory() && !entry.name.startsWith(".")) {
-          const skillPath = path.join(skillsDir, entry.name);
-          if (fs.existsSync(path.join(skillPath, "SKILL.md"))) {
-            skills.push({ label: `⚡ ${entry.name}`, value: skillPath });
-          } else {
-            skills.push({ label: `📁 ${entry.name}`, value: skillPath });
-          }
-        }
-      }
-    }
-  } catch {
-    // ignore
-  }
-
-  return skills;
-}
-
-// ─── Get Agent Names ────────────────────────────────────────────
-
-function getAgentNames(): string[] {
   const config = readConfig();
-  return Object.keys(config.agents);
+
+  if (directAgentName && directField) {
+    await editFieldForAgent(config, directAgentName, directField, ctx);
+    return;
+  }
+
+  // Interactive wizard
+  const agentName = await pickAgent(ctx);
+  if (!agentName) return;
+
+  if (agentName === MAIN_AGENT_KEY) {
+    await editMainAgentTools(config, ctx);
+    return;
+  }
+
+  const field = await pickField(ctx);
+  if (!field) return;
+
+  if (field === "show") {
+    ctx.ui.notify(`Konfigurasi untuk "${agentName}":\n${formatAgentConfig(config, agentName)}`, "info");
+    return;
+  }
+
+  await editFieldForAgent(config, agentName, field, ctx);
 }
 
-// ─── Validation ─────────────────────────────────────────────────
+// ─── Per-Agent Edit + Save ──────────────────────────────────────
 
-function validateModel(modelStr: string): string | null {
-  if (!modelStr.includes("/")) {
-    return 'Format model harus "provider/model-id" (contoh: 9r/worker)';
-  }
-  const parts = modelStr.split("/");
-  if (parts.length !== 2 || !parts[0].trim() || !parts[1].trim()) {
-    return 'Format model tidak valid. Gunakan "provider/model-id"';
-  }
-  return null;
-}
-
-function validatePath(p: string): string | null {
-  if (!p.startsWith("/") && !p.startsWith("~") && !p.startsWith("npm:") && !p.startsWith("git:") && !p.startsWith("pluthenplay:")) {
-    return 'Path harus absolute (/path), home (~/path), atau pi package (npm:, git:)';
-  }
-  // Untuk path fisik, cek eksistensi
-  if (p.startsWith("/") && !fs.existsSync(p)) {
-    return `Path "${p}" tidak ditemukan`;
-  }
-  if (p.startsWith("~")) {
-    const expanded = path.join(os.homedir(), p.slice(1));
-    if (!fs.existsSync(expanded)) {
-      return `Path "${p}" tidak ditemukan`;
-    }
-  }
-  return null;
-}
-
-// ─── Interactive Wizards ────────────────────────────────────────
-
-/**
- * Pick or type an agent name. Returns the agent name or undefined if cancelled.
- */
-const MAIN_AGENT_KEY = "🤖 Main Agent (tool policy)";
-
-async function pickAgent(ctx: ExtensionCommandContext): Promise<string | undefined> {
-  const existing = getAgentNames();
-  const options = [MAIN_AGENT_KEY, ...existing];
-  if (options.length === 1) {
-    // No existing agents besides main agent option
-    options.push("worker", "scout", "researcher", "planner", "reviewer");
-  }
-  options.push("✏️ Ketik nama agent baru...", "❌ Batal");
-
-  const choice = await ctx.ui.select("Pilih agent:", options);
-  if (!choice || choice === "❌ Batal") return undefined;
-  if (choice === "✏️ Ketik nama agent baru...") {
-    const name = await ctx.ui.input("Nama agent:", "contoh: worker");
-    if (!name?.trim()) return undefined;
-    return name.trim();
-  }
-  return choice === MAIN_AGENT_KEY ? MAIN_AGENT_KEY : choice;
-}
-
-async function pickField(ctx: ExtensionCommandContext): Promise<string | undefined> {
-  const choice = await ctx.ui.select("Pilih field yang ingin diedit:", [
-    "🤖 model — Pilih model untuk agent ini",
-    "🧩 extensions — Tambah/hapus extension",
-    "🛠️ skills — Tambah/hapus skills",
-    "👀 Lihat konfigurasi saat ini",
-    "❌ Batal",
-  ]);
-  if (!choice || choice === "❌ Batal") return undefined;
-  if (choice.startsWith("🤖")) return "model";
-  if (choice.startsWith("🧩")) return "extensions";
-  if (choice.startsWith("🛠️")) return "skills";
-  if (choice.startsWith("👀")) return "show";
-  return undefined;
-}
-
-// ─── Model Editor ───────────────────────────────────────────────
-
-async function editModel(
+async function editFieldForAgent(
+  config: CrewConfig,
   agentName: string,
-  currentModel: string | undefined,
+  field: string,
   ctx: ExtensionCommandContext,
-): Promise<string | undefined> {
-  // Get all available models from registry
-  const allModels = ctx.modelRegistry.getAll();
-  const modelOptions = allModels
-    .sort((a, b) => {
-      const aLabel = `${a.provider}/${a.id}`;
-      const bLabel = `${b.provider}/${b.id}`;
-      return aLabel.localeCompare(bLabel);
-    })
-    .map((m) => formatModelLabel(m));
-
-  // Prepend current if set
-  const selectOptions: string[] = [];
-  if (currentModel) {
-    selectOptions.push(`🔄 ${currentModel} (current)`);
-  }
-  selectOptions.push(...modelOptions);
-  selectOptions.push("✏️ Ketik manual (provider/model-id)", "❌ Batal");
-
-  const choice = await ctx.ui.select(
-    `Pilih model untuk agent "${agentName}"${currentModel ? ` (current: ${currentModel})` : ""}:`,
-    modelOptions.length > 200
-      ? // If too many models, ask user to type instead
-        ["✏️ Ketik manual (provider/model-id)", "❌ Batal"]
-      : selectOptions,
-  );
-
-  if (!choice || choice === "❌ Batal") return undefined;
-
-  if (choice.startsWith("🔄")) {
-    // Keep current — extract model from "(current)" text
-    const match = choice.match(/🔄 (.+) \(current\)/);
-    return match ? match[1] : currentModel;
-  }
-
-  if (choice === "✏️ Ketik manual (provider/model-id)") {
-    const manual = await ctx.ui.input(
-      "Masukkan model ID (format: provider/model-id):",
-      currentModel || "contoh: 9r/worker",
-    );
-    if (!manual?.trim()) return undefined;
-    const err = validateModel(manual.trim());
-    if (err) {
-      ctx.ui.notify(`❌ ${err}`, "error");
-      return undefined;
-    }
-    return manual.trim();
-  }
-
-  // Extract model from label — format "Name (provider/id)"
-  const parenMatch = choice.match(/\((.+)\)$/);
-  if (parenMatch) {
-    return parenMatch[1];
-  }
-
-  // Fallback: just use the whole choice as model id
-  return choice.trim();
-}
-
-// ─── Extensions Editor ──────────────────────────────────────────
-
-async function editExtensions(
-  agentName: string,
-  currentExtensions: string[] | undefined,
-  ctx: ExtensionCommandContext,
-): Promise<string[] | undefined> {
-  const currentSet = new Set(currentExtensions ?? []);
-
-  const installed = discoverExtensions();
-  const selectOptions: string[] = [];
-
-  // Show current extensions first
-  if (currentExtensions && currentExtensions.length > 0) {
-    selectOptions.push("━ Current extensions ─");
-    for (const ext of currentExtensions) {
-      const found = installed.find((i) => i.value === ext);
-      if (found) {
-        selectOptions.push(`✅ ${found.label}`);
-      } else {
-        selectOptions.push(`✅ ${ext} (custom)`);
-      }
-    }
-    selectOptions.push("───");
-  }
-
-  // Show available to add
-  const notAdded = installed.filter((i) => !currentSet.has(i.value));
-  if (notAdded.length > 0) {
-    selectOptions.push("━ Available extensions — pilih untuk tambah ─");
-    for (const ext of notAdded) {
-      selectOptions.push(`➕ ${ext.label}`);
-    }
-    selectOptions.push("───");
-  }
-
-  // Actions for removing
-  if (currentExtensions && currentExtensions.length > 0) {
-    selectOptions.push("🗑️ Hapus extension", "───");
-  }
-
-  selectOptions.push("📂 Tambah path/folder kustom");
-  selectOptions.push("✅ Selesai — simpan perubahan");
-  selectOptions.push("❌ Batal");
-
-  // Multi-step: loop until they say "done"
-  const working = new Set(currentExtensions ?? []);
-
-  while (true) {
-    const choice = await ctx.ui.select(
-      `Extensions untuk "${agentName}" (${working.size} aktif):`,
-      // Build dynamic options based on current working state
-      buildExtOptions(working, installed),
-    );
-
-    if (!choice || choice === "❌ Batal") return undefined;
-    if (choice === "✅ Selesai — simpan perubahan") break;
-
-    if (choice.startsWith("🗑️ Hapus extension")) {
-      // Show removable extensions
-      const removable = Array.from(working).map((v) => {
-        const found = installed.find((i) => i.value === v);
-        return found ? `❌ ${found.label}` : `❌ ${v} (custom)`;
-      });
-      removable.push("❌ Batal");
-      const toRemove = await ctx.ui.select("Pilih extension yang dihapus:", removable);
-      if (!toRemove || toRemove === "❌ Batal") continue;
-      // Extract value from label
-      const removedLabel = toRemove.replace(/^❌ /, "");
-      const found = installed.find((i) => i.label === removedLabel);
-      if (found) {
-        working.delete(found.value);
-      } else {
-        // Try matching by custom label
-        const customMatch = removedLabel.match(/^(.+) \(custom\)$/);
-        if (customMatch) {
-          working.delete(customMatch[1]);
-        }
-      }
-      continue;
-    }
-
-    if (choice === "📂 Tambah path/folder kustom") {
-      const customPath = await ctx.ui.input(
-        "Masukkan path extension (absolute / ~/path / npm:... / git:...):",
-        "",
-      );
-      if (!customPath?.trim()) continue;
-      const err = validatePath(customPath.trim());
-      if (err) {
-        ctx.ui.notify(`❌ ${err}`, "error");
-        continue;
-      }
-      working.add(customPath.trim());
-      continue;
-    }
-
-    // Toggle extension: if it starts with ➕, add it
-    if (choice.startsWith("➕ ")) {
-      const label = choice.replace(/^➕ /, "");
-      const found = installed.find((i) => i.label === label);
-      if (found) {
-        if (working.has(found.value)) {
-          working.delete(found.value);
-        } else {
-          working.add(found.value);
-        }
-      }
-      continue;
-    }
-
-    // Toggle: if it starts with ✅, remove it
-    if (choice.startsWith("✅ ")) {
-      const label = choice.replace(/^✅ /, "");
-      const found = installed.find((i) => i.label === label);
-      if (found) {
-        working.delete(found.value);
-      } else {
-        // Custom entry
-        const customMatch = label.match(/^(.+) \(custom\)$/);
-        if (customMatch) {
-          working.delete(customMatch[1]);
-        }
-      }
-      continue;
-    }
-  }
-
-  return Array.from(working);
-}
-
-function buildExtOptions(working: Set<string>, installed: ExtensionOption[]): string[] {
-  const opts: string[] = [];
-  if (working.size > 0) {
-    opts.push("━ Active ─");
-    for (const v of working) {
-      const found = installed.find((i) => i.value === v);
-      opts.push(found ? `✅ ${found.label}` : `✅ ${v} (custom)`);
-    }
-    opts.push("───");
-  }
-
-  const notAdded = installed.filter((i) => !working.has(i.value));
-  if (notAdded.length > 0) {
-    opts.push("━ Available — pilih untuk tambah ─");
-    for (const ext of notAdded) {
-      opts.push(`➕ ${ext.label}`);
-    }
-    opts.push("───");
-  }
-
-  if (working.size > 0) {
-    opts.push("🗑️ Hapus extension");
-    opts.push("───");
-  }
-
-  opts.push("📂 Tambah path/folder kustom");
-  opts.push("✅ Selesai — simpan perubahan");
-  opts.push("❌ Batal");
-  return opts;
-}
-
-// ─── Skills Editor ──────────────────────────────────────────────
-
-async function editSkills(
-  agentName: string,
-  currentSkills: string[] | undefined,
-  ctx: ExtensionCommandContext,
-): Promise<string[] | undefined> {
-  const currentSet = new Set(currentSkills ?? []);
-  const installed = discoverSkills();
-
-  const working = new Set(currentSkills ?? []);
-
-  while (true) {
-    const choice = await ctx.ui.select(
-      `Skills untuk "${agentName}" (${working.size} aktif):`,
-      buildSkillOptions(working, installed),
-    );
-
-    if (!choice || choice === "❌ Batal") return undefined;
-    if (choice === "✅ Selesai — simpan perubahan") break;
-
-    if (choice.startsWith("🗑️ Hapus skill")) {
-      const removable = Array.from(working).map((v) => {
-        const found = installed.find((i) => i.value === v);
-        return found ? `❌ ${found.label}` : `❌ ${v} (custom)`;
-      });
-      removable.push("❌ Batal");
-      const toRemove = await ctx.ui.select("Pilih skill yang dihapus:", removable);
-      if (!toRemove || toRemove === "❌ Batal") continue;
-      const removedLabel = toRemove.replace(/^❌ /, "");
-      const found = installed.find((i) => i.label === removedLabel);
-      if (found) {
-        working.delete(found.value);
-      } else {
-        const customMatch = removedLabel.match(/^(.+) \(custom\)$/);
-        if (customMatch) {
-          working.delete(customMatch[1]);
-        }
-      }
-      continue;
-    }
-
-    if (choice === "📂 Tambah path/folder kustom") {
-      const customPath = await ctx.ui.input(
-        "Masukkan path folder skill (absolute atau ~/path):",
-        "",
-      );
-      if (!customPath?.trim()) continue;
-      const expanded = customPath.startsWith("~")
-        ? path.join(os.homedir(), customPath.slice(1))
-        : customPath.trim();
-      if (customPath.startsWith("/") || customPath.startsWith("~")) {
-        if (!fs.existsSync(expanded)) {
-          ctx.ui.notify(`❌ Path "${customPath}" tidak ditemukan`, "error");
-          continue;
-        }
-      }
-      working.add(customPath.trim());
-      continue;
-    }
-
-    // Toggle from available
-    if (choice.startsWith("➕ ")) {
-      const label = choice.replace(/^➕ /, "");
-      const found = installed.find((i) => i.label === label);
-      if (found) {
-        if (working.has(found.value)) {
-          working.delete(found.value);
-        } else {
-          working.add(found.value);
-        }
-      }
-      continue;
-    }
-
-    // Toggle from active
-    if (choice.startsWith("✅ ")) {
-      const label = choice.replace(/^✅ /, "");
-      const found = installed.find((i) => i.label === label);
-      if (found) {
-        working.delete(found.value);
-      } else {
-        const customMatch = label.match(/^(.+) \(custom\)$/);
-        if (customMatch) {
-          working.delete(customMatch[1]);
-        }
-      }
-      continue;
-    }
-  }
-
-  return Array.from(working);
-}
-
-function buildSkillOptions(working: Set<string>, installed: SkillOption[]): string[] {
-  const opts: string[] = [];
-  if (working.size > 0) {
-    opts.push("━ Active ─");
-    for (const v of working) {
-      const found = installed.find((i) => i.value === v);
-      opts.push(found ? `✅ ${found.label}` : `✅ ${v} (custom)`);
-    }
-    opts.push("───");
-  }
-
-  const notAdded = installed.filter((i) => !working.has(i.value));
-  if (notAdded.length > 0) {
-    opts.push("━ Available — pilih untuk tambah ─");
-    for (const skill of notAdded) {
-      opts.push(`➕ ${skill.label}`);
-    }
-    opts.push("───");
-  }
-
-  if (working.size > 0) {
-    opts.push("🗑️ Hapus skill");
-    opts.push("───");
-  }
-
-  opts.push("📂 Tambah path/folder kustom");
-  opts.push("✅ Selesai — simpan perubahan");
-  opts.push("❌ Batal");
-  return opts;
-}
-
-// ─── Show Config ────────────────────────────────────────────────
-
-// ─── Main Agent Tools Editor ───────────────────────────────────
-
-async function editMainAgentTools(config: CrewConfig, ctx: ExtensionCommandContext): Promise<void> {
-  // Read current disabled tools or use default
-  const disabled = new Set(config.mainAgent?.disabledTools ?? DEFAULT_DISABLED_TOOLS);
-
-  while (true) {
-    const options = buildToolToggleOptions(disabled);
-    const choice = await ctx.ui.select(
-      `Main Agent Tools (${ALL_MAIN_AGENT_TOOLS.length - disabled.size} enabled, ${disabled.size} disabled):`,
-      options,
-    );
-
-    if (!choice || choice === "✅ Selesai — simpan") break;
-
-    // Toggle the tool
-    for (const tool of ALL_MAIN_AGENT_TOOLS) {
-      if (choice === buildToolEnableLabel(tool) || choice === buildToolDisableLabel(tool)) {
-        if (disabled.has(tool)) {
-          disabled.delete(tool);
-        } else {
-          disabled.add(tool);
-        }
-        break;
-      }
-    }
-  }
-
-  // Save
-  const disabledArr = Array.from(disabled);
-  if (disabledArr.length === 0) {
-    delete config.mainAgent?.disabledTools;
-    if (config.mainAgent && Object.keys(config.mainAgent).length === 0) {
-      delete config.mainAgent;
-    }
-  } else {
-    if (!config.mainAgent) config.mainAgent = {};
-    config.mainAgent.disabledTools = disabledArr;
-  }
-
-  // Ensure agents exists
+): Promise<void> {
   if (!config.agents) config.agents = {};
+  const agent = config.agents[agentName] ?? (config.agents[agentName] = {});
 
-  const success = writeConfig(config);
-  if (success) {
-    ctx.ui.notify("✅ Main agent tool config saved!", "info");
-    ctx.ui.notify("ℹ️ Jalankan /reload agar perubahan langsung berlaku", "info");
+  if (field === "model") {
+    const newModel = await editModel(agentName, agent.model, ctx);
+    if (newModel === undefined) return;
+    agent.model = newModel;
+  } else if (field === "extensions") {
+    const newExtensions = await editExtensions(agentName, agent.extensions, ctx);
+    if (newExtensions === undefined) return;
+    agent.extensions = newExtensions.length > 0 ? newExtensions : undefined;
+  } else if (field === "skills") {
+    const newSkills = await editSkills(agentName, agent.skills, ctx);
+    if (newSkills === undefined) return;
+    agent.skills = newSkills.length > 0 ? newSkills : undefined;
+  }
+
+  if (writeConfig(config)) {
+    ctx.ui.notify(`✅ Config untuk "${agentName}" berhasil disimpan!`, "info");
+    ctx.ui.notify(`ℹ️ Jalankan /reload agar perubahan langsung berlaku`, "info");
   } else {
-    ctx.ui.notify("❌ Gagal menyimpan config!", "error");
+    ctx.ui.notify(`❌ Gagal menyimpan config! Periksa permissions.`, "error");
   }
 }
 
-function buildToolEnableLabel(tool: string): string {
-  return `🟢 ${tool} (enabled)`;
-}
-
-function buildToolDisableLabel(tool: string): string {
-  return `🔴 ${tool} (disabled)`;
-}
-
-function buildToolToggleOptions(disabled: Set<string>): string[] {
-  const opts: string[] = [];
-  opts.push("━ Pilih tool untuk toggle enabled/disabled ─");
-  for (const tool of ALL_MAIN_AGENT_TOOLS) {
-    if (disabled.has(tool)) {
-      opts.push(buildToolDisableLabel(tool));
-    } else {
-      opts.push(buildToolEnableLabel(tool));
-    }
-  }
-  opts.push("───");
-  opts.push("✅ Selesai — simpan");
-  return opts;
-}
-
-// ─── Show Config ────────────────────────────────────────────────
+// ─── Display Formatting ─────────────────────────────────────────
 
 function formatConfig(config: CrewConfig): string {
   const lines: string[] = ["## crew-of-pi.json Config\n"];
 
-  // Main agent tools
   const disabledTools = config.mainAgent?.disabledTools ?? DEFAULT_DISABLED_TOOLS;
   lines.push("### Main Agent");
   lines.push(`- disabled tools: ${disabledTools.length ? disabledTools.join(", ") : "(none)"}`);
@@ -723,7 +124,6 @@ function formatConfig(config: CrewConfig): string {
   lines.push(`- enabled tools: ${enabledTools.length ? enabledTools.join(", ") : "(none)"}`);
   lines.push("");
 
-  // Per-agent config
   const agentNames = Object.keys(config.agents ?? {});
   if (agentNames.length === 0) {
     lines.push("No agents configured.");
@@ -740,7 +140,26 @@ function formatConfig(config: CrewConfig): string {
   return lines.join("\n");
 }
 
-// ─── Show Help ──────────────────────────────────────────────────
+function formatAgentConfig(config: CrewConfig, agentName: string): string {
+  if (agentName === MAIN_AGENT_KEY) {
+    const disabledTools = config.mainAgent?.disabledTools ?? DEFAULT_DISABLED_TOOLS;
+    const enabledTools = ALL_MAIN_AGENT_TOOLS.filter((t) => !disabledTools.includes(t));
+    return [
+      `disabled tools: ${disabledTools.length ? disabledTools.join(", ") : "(none)"}`,
+      `enabled tools: ${enabledTools.length ? enabledTools.join(", ") : "(none)"}`,
+    ].join("\n");
+  }
+
+  const agent = config.agents?.[agentName];
+  if (!agent) return "Belum ada konfigurasi.";
+  return [
+    `model: ${agent.model ?? "(default)"}`,
+    `extensions: ${agent.extensions?.length ? agent.extensions.join(", ") : "(none)"}`,
+    `skills: ${agent.skills?.length ? agent.skills.join(", ") : "(none)"}`,
+  ].join("\n");
+}
+
+// ─── Help ───────────────────────────────────────────────────────
 
 function showHelp(): string {
   return [
@@ -765,127 +184,6 @@ function showHelp(): string {
   ].join("\n");
 }
 
-// ─── Config Command Handler ─────────────────────────────────────
-
-async function handleConfigSubcommand(args: string, ctx: ExtensionCommandContext): Promise<void> {
-  const trimmed = args.trim();
-
-  // /crew-of-pi config show
-  if (trimmed === "show") {
-    const config = readConfig();
-    const formatted = formatConfig(config);
-    // Send as steer message so user sees it
-    ctx.ui.notify(formatted, "info");
-    return;
-  }
-
-  // /crew-of-pi config <agent-name> <field> — direct mode
-  const parts = trimmed.split(/\s+/);
-  const directAgentName = parts[0] && !["show", "help"].includes(parts[0]) ? parts[0] : undefined;
-  const directField = parts[1] && ["model", "extensions", "skills"].includes(parts[1]) ? parts[1] : undefined;
-
-  const config = readConfig();
-
-  if (directAgentName && directField) {
-    // Direct edit mode: skip agent & field picker
-    await editFieldForAgent(config, directAgentName, directField, ctx);
-    return;
-  }
-
-  // ─── Interactive Wizard ─────────────────────────────────────
-
-  // Step 1: Pick agent
-  const agentName = await pickAgent(ctx);
-  if (!agentName) return;
-
-  // Step 2: Handle main agent (tools toggle) vs regular agent (field picker)
-  if (agentName === MAIN_AGENT_KEY) {
-    await editMainAgentTools(config, ctx);
-    return;
-  }
-
-  // Step 2: Pick field for regular agent
-  const field = await pickField(ctx);
-  if (!field) return;
-  if (field === "show") {
-    const config = readConfig();
-    ctx.ui.notify(`Konfigurasi untuk "${agentName}":\n${formatAgentConfig(config, agentName)}`, "info");
-    return;
-  }
-
-  await editFieldForAgent(config, agentName, field, ctx);
-}
-
-async function editFieldForAgent(
-  config: CrewConfig,
-  agentName: string,
-  field: string,
-  ctx: ExtensionCommandContext,
-): Promise<void> {
-  const agent = config.agents[agentName] ?? (config.agents[agentName] = {});
-
-  if (field === "model") {
-    const newModel = await editModel(agentName, agent.model, ctx);
-    if (newModel === undefined) return; // cancelled
-    agent.model = newModel;
-  } else if (field === "extensions") {
-    const newExtensions = await editExtensions(agentName, agent.extensions, ctx);
-    if (newExtensions === undefined) return; // cancelled
-    agent.extensions = newExtensions.length > 0 ? newExtensions : undefined;
-  } else if (field === "skills") {
-    const newSkills = await editSkills(agentName, agent.skills, ctx);
-    if (newSkills === undefined) return; // cancelled
-    agent.skills = newSkills.length > 0 ? newSkills : undefined;
-  }
-
-  const success = writeConfig(config);
-  if (success) {
-    ctx.ui.notify(`✅ Config untuk "${agentName}" berhasil disimpan!`, "info");
-    ctx.ui.notify(`ℹ️ Jalankan /reload agar perubahan langsung berlaku`, "info");
-  } else {
-    ctx.ui.notify(`❌ Gagal menyimpan config! Periksa permissions.`, "error");
-  }
-}
-
-function formatAgentConfig(config: CrewConfig, agentName: string): string {
-  if (agentName === MAIN_AGENT_KEY) {
-    const disabledTools = config.mainAgent?.disabledTools ?? DEFAULT_DISABLED_TOOLS;
-    const lines: string[] = [];
-    lines.push(`disabled tools: ${disabledTools.length ? disabledTools.join(", ") : "(none)"}`);
-    const enabledTools = ALL_MAIN_AGENT_TOOLS.filter((t) => !disabledTools.includes(t));
-    lines.push(`enabled tools: ${enabledTools.length ? enabledTools.join(", ") : "(none)"}`);
-    return lines.join("\n");
-  }
-
-  const agent = config.agents?.[agentName];
-  if (!agent) return "Belum ada konfigurasi.";
-  const lines: string[] = [];
-  lines.push(`model: ${agent.model ?? "(default)"}`);
-  lines.push(`extensions: ${agent.extensions?.length ? agent.extensions.join(", ") : "(none)"}`);
-  lines.push(`skills: ${agent.skills?.length ? agent.skills.join(", ") : "(none)"}`);
-  return lines.join("\n");
-}
-
-// ─── Main Command Handler ───────────────────────────────────────
-
-async function handleCrewOfPiCommand(args: string, ctx: ExtensionCommandContext): Promise<void> {
-  const trimmed = args.trim().toLowerCase();
-
-  if (trimmed === "help" || trimmed === "" || trimmed === "--help" || trimmed === "-h") {
-    ctx.ui.notify(showHelp(), "info");
-    return;
-  }
-
-  if (trimmed === "config" || trimmed.startsWith("config ")) {
-    const subArgs = trimmed.startsWith("config ") ? trimmed.slice(7) : "";
-    await handleConfigSubcommand(subArgs, ctx);
-    return;
-  }
-
-  // Unknown subcommand
-  ctx.ui.notify(`Unknown subcommand: "${trimmed}". Gunakan /crew-of-pi help`, "error");
-}
-
 // ─── Argument Completions ───────────────────────────────────────
 
 function getArgumentCompletions(argumentPrefix: string): { value: string; label: string; description?: string }[] | null {
@@ -901,34 +199,24 @@ function getArgumentCompletions(argumentPrefix: string): { value: string; label:
 
   if ("config ".startsWith(prefix) || prefix.startsWith("config ")) {
     const sub = prefix.startsWith("config ") ? prefix.slice(7) : "";
-
-    // Agent name completion
     const agentNames = getAgentNames();
     const agentCompletions = agentNames.map((name) => ({
-      value: `config ${name}`,
-      label: `config ${name}`,
-      description: `Configure agent "${name}"`,
+      value: `config ${name}`, label: `config ${name}`, description: `Configure agent "${name}"`,
     }));
-
-    // Field completions (shown when no matching agent name)
-    const fieldCompletions = ["model", "extensions", "skills"].map((field) => ({
-      value: `config <agent> ${field}`,
-      label: `config <agent> ${field}`,
-      description: `Edit ${field}`,
+    const fieldCompletions = ["model", "extensions", "skills"].map((f) => ({
+      value: `config <agent> ${f}`, label: `config <agent> ${f}`, description: `Edit ${f}`,
     }));
 
     if (!sub || agentNames.some((n) => n.startsWith(sub))) {
       const matching = agentNames.filter((n) => n.startsWith(sub));
-      return matching.length > 0
-        ? matching.map((n) => ({ value: `config ${n}`, label: `config ${n}`, description: `Configure agent "${n}"` }))
-        : [
-            { value: "config show", label: "config show", description: "Show current config" },
-            ...agentCompletions,
-            ...fieldCompletions,
-          ];
+      if (matching.length > 0) return matching.map((n) => ({ value: `config ${n}`, label: `config ${n}`, description: `Configure agent "${n}"` }));
+      return [
+        { value: "config show", label: "config show", description: "Show current config" },
+        ...agentCompletions,
+        ...fieldCompletions,
+      ];
     }
 
-    // If first word after "config " looks like an agent name, suggest fields
     const firstArg = sub.split(/\s+/)[0];
     if (firstArg && agentNames.includes(firstArg)) {
       const fieldPrefix = sub.split(/\s+/)[1] || "";
@@ -945,7 +233,7 @@ function getArgumentCompletions(argumentPrefix: string): { value: string; label:
 
 export function registerConfigCommand(pi: ExtensionAPI): void {
   pi.registerCommand("crew-of-pi", {
-    description: "Manage crew-of-pi config — model, extensions, skills per agent",
+    description: "Manage crew-of-pi config — model, extensions, skills per agent, main agent tool policy",
     handler: handleCrewOfPiCommand,
     getArgumentCompletions,
   } as Omit<RegisteredCommand, "name" | "sourceInfo">);
