@@ -1,0 +1,18 @@
+{
+  "name": "crew-of-pi",
+  "version": "0.1.0",
+  "description": "Async non-blocking subagent orchestration for pi — spawn, chain, delegate, coordinate",
+  "keywords": ["pi-package", "pi-extension", "crew-of-pi", "subagent", "orchestration"],
+  "license": "MIT",
+  "type": "module",
+  "pi": {
+    "extensions": ["./index.ts"],
+    "prompts": ["./prompts"]
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*",
+    "@earendil-works/pi-ai": "*",
+    "@earendil-works/pi-tui": "*",
+    "typebox": "*"
+  }
+}
