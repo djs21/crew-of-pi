@@ -9,6 +9,7 @@ import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import type { ExtensionOption, SkillOption } from "./config.types";
 import { MAIN_AGENT_KEY } from "./config.types";
 import { formatModelLabel, discoverExtensions, discoverSkills, getAgentNames, validateModel, validatePath } from "./config.helpers";
+import { showModelSelector, type ModelOption } from "./config.model-selector";
 
 // ─── Agent Picker ───────────────────────────────────────────────
 
@@ -55,39 +56,46 @@ export async function editModel(
   currentModel: string | undefined,
   ctx: ExtensionCommandContext,
 ): Promise<string | undefined> {
+  // Get all available models and build searchable options
   const allModels = ctx.modelRegistry.getAll();
-  const modelOptions = allModels
+
+  const modelOptions: ModelOption[] = allModels
     .sort((a, b) => `${a.provider}/${a.id}`.localeCompare(`${b.provider}/${b.id}`))
-    .map((m) => formatModelLabel(m));
+    .map((m) => ({
+      value: `${m.provider}/${m.id}`,
+      label: formatModelLabel(m),
+      provider: m.provider,
+      id: m.id,
+      searchText: `${m.provider} ${m.id} ${m.name ?? ""} ${formatModelLabel(m)}`,
+    }));
 
-  const selectOptions: string[] = [];
-  if (currentModel) selectOptions.push(`🔄 ${currentModel} (current)`);
-  selectOptions.push(...modelOptions);
-  selectOptions.push("✏️ Ketik manual (provider/model-id)", "❌ Batal");
-
-  const choice = await ctx.ui.select(
-    `Pilih model untuk agent "${agentName}"${currentModel ? ` (current: ${currentModel})` : ""}:`,
-    modelOptions.length > 200
-      ? ["✏️ Ketik manual (provider/model-id)", "❌ Batal"]
-      : selectOptions,
-  );
-
-  if (!choice || choice === "❌ Batal") return undefined;
-  if (choice.startsWith("🔄")) {
-    const match = choice.match(/🔄 (.+) \(current\)/);
-    return match ? match[1] : currentModel;
+  // Add "keep current" option at the top if there's a current model
+  if (currentModel) {
+    modelOptions.unshift({
+      value: currentModel,
+      label: `🔄 ${currentModel} (current)`,
+      provider: currentModel.split("/")[0] ?? "",
+      id: currentModel.split("/").slice(1).join("/"),
+      searchText: `${currentModel} current`,
+    });
   }
-  if (choice === "✏️ Ketik manual (provider/model-id)") {
-    const manual = await ctx.ui.input("Masukkan model ID (format: provider/model-id):", currentModel || "contoh: 9r/worker");
+
+  // Also prepend a separator with manual input option as first item
+  const result = await showModelSelector(modelOptions, ctx);
+
+  if (result === undefined) {
+    // User cancelled — ask if they want manual input
+    const manual = await ctx.ui.input(
+      "Masukkan model ID manual (format: provider/model-id) atau kosongkan untuk batal:",
+      currentModel || "",
+    );
     if (!manual?.trim()) return undefined;
     const err = validateModel(manual.trim());
     if (err) { ctx.ui.notify(`❌ ${err}`, "error"); return undefined; }
     return manual.trim();
   }
 
-  const parenMatch = choice.match(/\((.+)\)$/);
-  if (parenMatch) return parenMatch[1];
-  return choice.trim();
+  return result;
 }
 
 // ─── Extensions Editor ──────────────────────────────────────────

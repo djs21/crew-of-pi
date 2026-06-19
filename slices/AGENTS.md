@@ -23,6 +23,7 @@ Slices are designed to be independently developable, testable, and removable by 
   - `config.helpers.ts` — config I/O, discovery, validation
   - `config.wizard.ts` — per-agent wizard (model, extensions, skills)
   - `config.main-agent.ts` — main agent tool toggle wizard
+  - `config.model-selector.ts` — fuzzy-searchable model picker via ctx.ui.custom()
 
 ## Local Contracts
 
