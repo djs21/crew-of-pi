@@ -10,6 +10,9 @@
  *   - model:        pick from available models
  *   - extensions:   pick from installed extensions + custom path
  *   - skills:       pick from installed skills + custom path
+ *
+ * For main agent, allows:
+ *   - tools:        toggle enabled/disabled state for read, bash, grep, find, ls, write, edit
  */
 
 import * as fs from "node:fs";
@@ -26,9 +29,20 @@ interface AgentOverride {
   [key: string]: unknown;
 }
 
-interface CrewConfig {
-  agents: Record<string, AgentOverride>;
+interface MainAgentConfig {
+  disabledTools?: string[];
 }
+
+interface CrewConfig {
+  mainAgent?: MainAgentConfig;
+  agents?: Record<string, AgentOverride>;
+}
+
+/** All main-agent tools that can be toggled */
+const ALL_MAIN_AGENT_TOOLS = ["read", "bash", "grep", "find", "ls", "write", "edit"];
+
+/** Default disabled tools if no config is set */
+const DEFAULT_DISABLED_TOOLS = ["write", "edit"];
 
 // ─── Config Path ────────────────────────────────────────────────
 
@@ -43,7 +57,11 @@ function readConfig(): CrewConfig {
   try {
     const raw = fs.readFileSync(configPath, "utf-8");
     const parsed = JSON.parse(raw) as CrewConfig;
-    if (parsed && typeof parsed === "object" && parsed.agents && typeof parsed.agents === "object") {
+    if (parsed && typeof parsed === "object") {
+      // Normalize: ensure agents exists
+      if (!parsed.agents || typeof parsed.agents !== "object") {
+        parsed.agents = {};
+      }
       return parsed;
     }
     return { agents: {} };
@@ -226,10 +244,13 @@ function validatePath(p: string): string | null {
 /**
  * Pick or type an agent name. Returns the agent name or undefined if cancelled.
  */
+const MAIN_AGENT_KEY = "🤖 Main Agent (tool policy)";
+
 async function pickAgent(ctx: ExtensionCommandContext): Promise<string | undefined> {
   const existing = getAgentNames();
-  const options = [...existing];
-  if (options.length === 0) {
+  const options = [MAIN_AGENT_KEY, ...existing];
+  if (options.length === 1) {
+    // No existing agents besides main agent option
     options.push("worker", "scout", "researcher", "planner", "reviewer");
   }
   options.push("✏️ Ketik nama agent baru...", "❌ Batal");
@@ -241,7 +262,7 @@ async function pickAgent(ctx: ExtensionCommandContext): Promise<string | undefin
     if (!name?.trim()) return undefined;
     return name.trim();
   }
-  return choice;
+  return choice === MAIN_AGENT_KEY ? MAIN_AGENT_KEY : choice;
 }
 
 async function pickField(ctx: ExtensionCommandContext): Promise<string | undefined> {
@@ -614,14 +635,101 @@ function buildSkillOptions(working: Set<string>, installed: SkillOption[]): stri
 
 // ─── Show Config ────────────────────────────────────────────────
 
+// ─── Main Agent Tools Editor ───────────────────────────────────
+
+async function editMainAgentTools(config: CrewConfig, ctx: ExtensionCommandContext): Promise<void> {
+  // Read current disabled tools or use default
+  const disabled = new Set(config.mainAgent?.disabledTools ?? DEFAULT_DISABLED_TOOLS);
+
+  while (true) {
+    const options = buildToolToggleOptions(disabled);
+    const choice = await ctx.ui.select(
+      `Main Agent Tools (${ALL_MAIN_AGENT_TOOLS.length - disabled.size} enabled, ${disabled.size} disabled):`,
+      options,
+    );
+
+    if (!choice || choice === "✅ Selesai — simpan") break;
+
+    // Toggle the tool
+    for (const tool of ALL_MAIN_AGENT_TOOLS) {
+      if (choice === buildToolEnableLabel(tool) || choice === buildToolDisableLabel(tool)) {
+        if (disabled.has(tool)) {
+          disabled.delete(tool);
+        } else {
+          disabled.add(tool);
+        }
+        break;
+      }
+    }
+  }
+
+  // Save
+  const disabledArr = Array.from(disabled);
+  if (disabledArr.length === 0) {
+    delete config.mainAgent?.disabledTools;
+    if (config.mainAgent && Object.keys(config.mainAgent).length === 0) {
+      delete config.mainAgent;
+    }
+  } else {
+    if (!config.mainAgent) config.mainAgent = {};
+    config.mainAgent.disabledTools = disabledArr;
+  }
+
+  // Ensure agents exists
+  if (!config.agents) config.agents = {};
+
+  const success = writeConfig(config);
+  if (success) {
+    ctx.ui.notify("✅ Main agent tool config saved!", "info");
+    ctx.ui.notify("ℹ️ Restart session agar perubahan berlaku (Ctrl+D lalu /start)", "info");
+  } else {
+    ctx.ui.notify("❌ Gagal menyimpan config!", "error");
+  }
+}
+
+function buildToolEnableLabel(tool: string): string {
+  return `🟢 ${tool} (enabled)`;
+}
+
+function buildToolDisableLabel(tool: string): string {
+  return `🔴 ${tool} (disabled)`;
+}
+
+function buildToolToggleOptions(disabled: Set<string>): string[] {
+  const opts: string[] = [];
+  opts.push("━ Pilih tool untuk toggle enabled/disabled ─");
+  for (const tool of ALL_MAIN_AGENT_TOOLS) {
+    if (disabled.has(tool)) {
+      opts.push(buildToolDisableLabel(tool));
+    } else {
+      opts.push(buildToolEnableLabel(tool));
+    }
+  }
+  opts.push("───");
+  opts.push("✅ Selesai — simpan");
+  return opts;
+}
+
+// ─── Show Config ────────────────────────────────────────────────
+
 function formatConfig(config: CrewConfig): string {
   const lines: string[] = ["## crew-of-pi.json Config\n"];
-  const agentNames = Object.keys(config.agents);
+
+  // Main agent tools
+  const disabledTools = config.mainAgent?.disabledTools ?? DEFAULT_DISABLED_TOOLS;
+  lines.push("### Main Agent");
+  lines.push(`- disabled tools: ${disabledTools.length ? disabledTools.join(", ") : "(none)"}`);
+  const enabledTools = ALL_MAIN_AGENT_TOOLS.filter((t) => !disabledTools.includes(t));
+  lines.push(`- enabled tools: ${enabledTools.length ? enabledTools.join(", ") : "(none)"}`);
+  lines.push("");
+
+  // Per-agent config
+  const agentNames = Object.keys(config.agents ?? {});
   if (agentNames.length === 0) {
     lines.push("No agents configured.");
   } else {
     for (const name of agentNames) {
-      const agent = config.agents[name];
+      const agent = (config.agents ?? {})[name];
       lines.push(`### ${name}`);
       lines.push(`- model: ${agent.model ?? "(default)"}`);
       lines.push(`- extensions: ${agent.extensions?.length ? agent.extensions.join(", ") : "(none)"}`);
@@ -647,6 +755,11 @@ function showHelp(): string {
     "  `model`      — Pilih model dari yang tersedia atau ketik manual",
     "  `extensions` — Pilih dari installed extensions, pi packages, atau path kustom",
     "  `skills`     — Pilih dari installed skills atau path kustom",
+    "",
+    "**Main Agent:**",
+    "  Pilih '🤖 Main Agent (tool policy)' untuk toggle enabled/disabled tools",
+    "  Tools: read, bash, grep, find, ls, write, edit",
+    "  Default disabled: write, edit",
     "",
     "**Lokasi config:** `~/.pi/agent/crew-of-pi.json`",
   ].join("\n");
@@ -685,7 +798,13 @@ async function handleConfigSubcommand(args: string, ctx: ExtensionCommandContext
   const agentName = await pickAgent(ctx);
   if (!agentName) return;
 
-  // Step 2: Pick field
+  // Step 2: Handle main agent (tools toggle) vs regular agent (field picker)
+  if (agentName === MAIN_AGENT_KEY) {
+    await editMainAgentTools(config, ctx);
+    return;
+  }
+
+  // Step 2: Pick field for regular agent
   const field = await pickField(ctx);
   if (!field) return;
   if (field === "show") {
@@ -729,7 +848,16 @@ async function editFieldForAgent(
 }
 
 function formatAgentConfig(config: CrewConfig, agentName: string): string {
-  const agent = config.agents[agentName];
+  if (agentName === MAIN_AGENT_KEY) {
+    const disabledTools = config.mainAgent?.disabledTools ?? DEFAULT_DISABLED_TOOLS;
+    const lines: string[] = [];
+    lines.push(`disabled tools: ${disabledTools.length ? disabledTools.join(", ") : "(none)"}`);
+    const enabledTools = ALL_MAIN_AGENT_TOOLS.filter((t) => !disabledTools.includes(t));
+    lines.push(`enabled tools: ${enabledTools.length ? enabledTools.join(", ") : "(none)"}`);
+    return lines.join("\n");
+  }
+
+  const agent = config.agents?.[agentName];
   if (!agent) return "Belum ada konfigurasi.";
   const lines: string[] = [];
   lines.push(`model: ${agent.model ?? "(default)"}`);

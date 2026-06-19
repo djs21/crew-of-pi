@@ -23,3 +23,6 @@ export const DEFAULT_BLOCK_POLICY: BlockPolicyConfig = {
   allowBashReadOnly: true,
   customMessage: "Main agent is orchestrator-only. Use crew_spawn to delegate tasks to subagents.",
 };
+
+/** Default tools disabled for main agent when no crew-of-pi.json config is set */
+export const DEFAULT_MAIN_AGENT_DISABLED_TOOLS = ["write", "edit"];

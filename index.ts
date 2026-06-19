@@ -11,13 +11,14 @@ import * as path from "node:path";
 
 // ─── Agent Discovery ────────────────────────────────────────────
 import { getAgentRegistry, resetAgentRegistry } from "./slices/agents/agents.registry";
-import { setBundledAgentsDir } from "./slices/agents/agents.discovery";
+import { loadCrewConfig, setBundledAgentsDir } from "./slices/agents/agents.discovery";
 
 // ─── Spawn ──────────────────────────────────────────────────────
 import { registerSpawnTool, setSpawnInfra } from "./slices/spawn/spawn.tool";
 import { getWidgetStore, resetWidgetStore } from "./slices/widget/widget.store";
 
 // ─── Blockers ───────────────────────────────────────────────────
+import { DEFAULT_MAIN_AGENT_DISABLED_TOOLS } from "./slices/blockers/blockers.types";
 import { registerBlocker, setBlockPolicy } from "./slices/blockers/blockers.intercept";
 
 // ─── Prompt ─────────────────────────────────────────────────────
@@ -68,13 +69,16 @@ export default function (pi: ExtensionAPI) {
       extensionDir: bundledAgentsPath,
     });
 
-    // Set default block policy
+    // Load main agent tool config from crew-of-pi.json
+    const crewConfig = loadCrewConfig(ctx.cwd);
+    const disabledTools = crewConfig?.mainAgent?.disabledTools ?? DEFAULT_MAIN_AGENT_DISABLED_TOOLS;
+
     setBlockPolicy({
-      blockedTools: [
-        { toolName: "write", reason: "Main agent is read-only. Delegate to 'worker' subagent via crew_spawn." },
-        { toolName: "edit", reason: "Main agent is read-only. Delegate to 'worker' subagent via crew_spawn." },
-      ],
-      allowBashReadOnly: true,
+      blockedTools: disabledTools.map((toolName) => ({
+        toolName,
+        reason: `Main agent is orchestrator-only. Tool "${toolName}" is disabled via crew-of-pi.json config.`,
+      })),
+      allowBashReadOnly: !disabledTools.includes("bash"),
     });
 
     // Set prompt config

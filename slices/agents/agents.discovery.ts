@@ -45,11 +45,19 @@ interface AgentOverride {
   model?: string;
   tools?: string[];
   extensions?: string[];
+  skills?: string[];
   thinking?: string;
   [key: string]: any;
 }
 
+export interface MainAgentConfig {
+  /** Tools explicitly disabled for main agent. Default: ["write", "edit"] */
+  disabledTools?: string[];
+}
+
 interface CrewConfig {
+  /** Main agent tool policy */
+  mainAgent?: MainAgentConfig;
   agents: Record<string, AgentOverride>;
 }
 
@@ -148,7 +156,7 @@ function loadConfigFile(filePath: string): CrewConfig | null {
     const parsed = JSON.parse(raw) as CrewConfig;
 
     // Validate structure — must have an "agents" object
-    if (!parsed || typeof parsed !== "object" || typeof parsed.agents !== "object") {
+    if (!parsed || typeof parsed !== "object") {
       return null;
     }
 
@@ -172,12 +180,21 @@ export function loadCrewConfig(cwd: string): CrewConfig | null {
 
   if (!globalConfig && !projectConfig) return null;
 
-  // Merge: project overrides global (shallow merge per agent)
+  // Merge: project overrides global
+  const mergedAgents = {
+    ...(globalConfig?.agents ?? {}),
+    ...(projectConfig?.agents ?? {}),
+  };
+
+  // Merge mainAgent: project overrides global (full replace per field)
+  const mergedMainAgent: MainAgentConfig = {
+    ...(globalConfig?.mainAgent ?? {}),
+    ...(projectConfig?.mainAgent ?? {}),
+  };
+
   return {
-    agents: {
-      ...(globalConfig?.agents ?? {}),
-      ...(projectConfig?.agents ?? {}),
-    },
+    mainAgent: Object.keys(mergedMainAgent).length > 0 ? mergedMainAgent : undefined,
+    agents: mergedAgents,
   };
 }
 
