@@ -760,14 +760,14 @@ async function handleCrewOfPiCommand(args: string, ctx: ExtensionCommandContext)
 
 // ─── Argument Completions ───────────────────────────────────────
 
-function getArgumentCompletions(argumentPrefix: string): { label: string; detail?: string }[] | null {
+function getArgumentCompletions(argumentPrefix: string): { value: string; label: string; description?: string }[] | null {
   const prefix = argumentPrefix.toLowerCase();
 
   if (prefix === "" || "config".startsWith(prefix)) {
     return [
-      { label: "config", detail: "Edit crew-of-pi.json config interactively" },
-      { label: "config show", detail: "Show current config" },
-      { label: "help", detail: "Show usage information" },
+      { value: "config", label: "config", description: "Edit crew-of-pi.json config interactively" },
+      { value: "config show", label: "config show", description: "Show current config" },
+      { value: "help", label: "help", description: "Show usage information" },
     ];
   }
 
@@ -777,21 +777,27 @@ function getArgumentCompletions(argumentPrefix: string): { label: string; detail
     // Agent name completion
     const agentNames = getAgentNames();
     const agentCompletions = agentNames.map((name) => ({
+      value: `config ${name}`,
       label: `config ${name}`,
-      detail: `Configure agent "${name}"`,
+      description: `Configure agent "${name}"`,
     }));
 
-    // Field completions
+    // Field completions (shown when no matching agent name)
     const fieldCompletions = ["model", "extensions", "skills"].map((field) => ({
+      value: `config <agent> ${field}`,
       label: `config <agent> ${field}`,
-      detail: `Edit ${field}`,
+      description: `Edit ${field}`,
     }));
 
     if (!sub || agentNames.some((n) => n.startsWith(sub))) {
       const matching = agentNames.filter((n) => n.startsWith(sub));
       return matching.length > 0
-        ? matching.map((n) => ({ label: `config ${n}`, detail: `Configure agent "${n}"` }))
-        : [{ label: "config show", detail: "Show current config" }, ...agentCompletions, ...fieldCompletions];
+        ? matching.map((n) => ({ value: `config ${n}`, label: `config ${n}`, description: `Configure agent "${n}"` }))
+        : [
+            { value: "config show", label: "config show", description: "Show current config" },
+            ...agentCompletions,
+            ...fieldCompletions,
+          ];
     }
 
     // If first word after "config " looks like an agent name, suggest fields
@@ -800,7 +806,7 @@ function getArgumentCompletions(argumentPrefix: string): { label: string; detail
       const fieldPrefix = sub.split(/\s+/)[1] || "";
       return ["model", "extensions", "skills"]
         .filter((f) => f.startsWith(fieldPrefix))
-        .map((f) => ({ label: `config ${firstArg} ${f}`, detail: `Edit ${f} for "${firstArg}"` }));
+        .map((f) => ({ value: `config ${firstArg} ${f}`, label: `config ${firstArg} ${f}`, description: `Edit ${f} for "${firstArg}"` }));
     }
   }
 
