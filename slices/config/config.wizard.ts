@@ -56,8 +56,8 @@ export async function editModel(
   currentModel: string | undefined,
   ctx: ExtensionCommandContext,
 ): Promise<string | undefined> {
-  // Get all available models and build searchable options
-  const allModels = ctx.modelRegistry.getAll();
+  // Get only models with configured auth
+  const allModels = ctx.modelRegistry.getAvailable();
 
   const modelOptions: ModelOption[] = allModels
     .sort((a, b) => `${a.provider}/${a.id}`.localeCompare(`${b.provider}/${b.id}`))

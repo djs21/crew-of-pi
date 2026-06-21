@@ -307,15 +307,15 @@ Close an interactive subagent session.
 
 ## Bundled Subagents
 
-5 subagents ship with crew-of-pi. All use cheap models (`deepseek-v4-flash`) for cost-efficient delegation.
+5 subagents ship with crew-of-pi. Each uses a cost-efficient model for delegation.
 
 | Agent | Purpose | Tools | Model | Interactive |
 |-------|---------|-------|-------|-------------|
-| **worker** | General implementation with full write capabilities | `read, write, edit, grep, find, ls, bash` | `openrouter/deepseek/deepseek-v4-flash` | No |
+| **worker** | General implementation with full write capabilities | `read, write, edit, grep, find, ls, bash` | `opencode/deepseek-v4-flash-free` | No |
 | **scout** | Fast codebase recon, returns structured findings | `read, grep, find, ls, bash` | `openrouter/deepseek/deepseek-v4-flash` | No |
-| **researcher** | Deep codebase research and analysis | `read, grep, find, ls, bash` | `openrouter/deepseek/deepseek-v4-flash` | No |
-| **planner** | Creates implementation plans (read-only) | `read, grep, find, ls` | `openrouter/deepseek/deepseek-v4-flash` | No |
-| **reviewer** | Code review for quality, security, maintainability | `read, grep, find, ls, bash` | `openrouter/deepseek/deepseek-v4-flash` | No |
+| **researcher** | Deep codebase research and analysis | `read, grep, find, ls, bash` | `deepseek/deepseek-v4-flash` | No |
+| **planner** | Creates implementation plans (read-only) | `read, grep, find, ls` | `claudinio/claudinio` | No |
+| **reviewer** | Code review for quality, security, maintainability | `read, grep, find, ls, bash` | `openrouter/deepseek/deepseek-v4-pro` | No |
 
 ### Example Worker Output Format
 
@@ -359,7 +359,7 @@ name: my-agent                  # Unique ID, no whitespace (use hyphens)
 description: What this agent does
 
 # Optional — Runtime
-model: openrouter/deepseek/deepseek-v4-flash  # provider/model-id
+model: opencode/deepseek-v4-flash-free  # provider/model-id
 thinking: off                           # off | minimal | low | medium | high | xhigh
 tools: read, write, grep, find, ls      # comma-separated tool list
 skills: ast-grep, my-skill              # comma-separated skill names
@@ -533,14 +533,82 @@ crew-of-pi/
 │   ├── crew-list/              # crew_list tool
 │   └── config/                 # /crew-of-pi config slash command
 ├── agents/                     # Bundled subagent definitions (.md)
+├── docs/                       # Design documents, audit findings, plans
 └── prompts/                    # Workflow templates
 ```
+
+## DOX Framework
+
+The project uses **DOX** (Document-Oriented eXecution) with an `AGENTS.md` hierarchy. Every file/folder has a DOX owner that defines its purpose, contracts, and verification rules. The hierarchy:
+
+```
+AGENTS.md (root) — project-wide rules, DOX framework, beads workflow
+├── slices/AGENTS.md           — architecture, inter-slice contracts, naming
+├── agents/AGENTS.md           — agent frontmatter schema, bundled specs
+├── prompts/AGENTS.md          — template structure, chain steps
+├── docs/AGENTS.md             — documentation standards, audit trails
+└── shared/AGENTS.md           — type contracts, cross-slice interface governance
+```
+
+Key rules:
+- Read the nearest `AGENTS.md` before editing any path
+- Update owning AGENTS.md when behavior/contracts change
+- DOX closeout: re-check changed paths, update affected docs, remove stale text
 
 **Design principles:**
 - Each slice is self-contained — develop, test, and remove independently
 - Cross-slice communication only through `shared/types.ts` interfaces
 - Add/remove features by adding/removing slice imports in `index.ts`
 - Slash commands registered via `pi.registerCommand()` in their slice
+
+---
+
+## Event Hooks
+
+Crew-of-pi registers **6 event hooks** across 4 pi extension events to orchestrate lifecycle, enforce policies, and update the TUI:
+
+| Hook | Registration | Slice | Purpose |
+|------|-------------|-------|---------|
+| `session_start` | `index.ts` | agents + blockers + prompt | Discover agents, load config, set block policy, restore message bus |
+| `session_start` | `widget/widget.updater.ts` | widget | Sync TUI widget state on session init |
+| `session_shutdown` | `index.ts` | agents + lifecycle | Dispose owned subagent sessions, reset registry/bus/store |
+| `session_shutdown` | `widget/widget.updater.ts` | widget | Clear widget state on shutdown |
+| `before_agent_start` | `prompt/prompt.injector.ts` | prompt | Inject subagent crew description into main agent's system prompt |
+| `tool_call` | `blockers/blockers.intercept.ts` | blockers | Block `write`/`edit` on main agent — delegate to worker instead |
+
+All hooks are registered in `index.ts` via slice `register*` functions, keeping each slice self-contained.
+
+---
+
+## Architecture Evolution
+
+The codebase underwent several consolidations to reduce file count and eliminate duplication:
+
+| Consolidation | Before | After | Savings |
+|--------------|--------|-------|---------|
+| **Agent discovery pipeline** | 5 files (config, frontmatter, types, discovery, registry) | 2 files (discovery + registry) | 3 files removed |
+| **Comms slice** | 4 files (bus, relay, persistence, types) | 1 file (`comms.ts`) | 3 files removed |
+| **Lifecycle triplet** | 3 files inlining same ownership validation | 1 shared module (`lifecycle.shared.ts`) + 3 thin tools | Shared validation in one place |
+| **Dual handle in spawn** | Inner handle created then field-copied to outer | Single handle mutated in-place | No field copying, simpler abort-race guards |
+| **Chain step types** | Duplicated in `shared/types.ts` + `chain.types.ts` | Single source in `chain.types.ts` | Usage tracking added per step |
+| **Spawning mechanism** | `child_process.spawn("pi", ...)` | `createAgentSession()` (SDK native) | 3-5x memory savings, native turn tracking, session naming |
+
+---
+
+## Design Documents
+
+The `docs/` directory contains durable design records and audit findings:
+
+| Document | Lines | Content |
+|----------|-------|---------|
+| [plan.md](./docs/plan.md) | 681 | Original architecture plan — design decisions, implementation details, timeline |
+| [plan-migrate-create-agent-session.md](./docs/plan-migrate-create-agent-session.md) | 319 | Migration plan: `child_process` → `createAgentSession` (gap #9 fix) |
+| [findings-2025-06-13.md](./docs/findings-2025-06-13.md) | 81 | Codebase audit — 12 findings, 9 fixed, 1 skipped |
+| [findings-2025-06-14-pi-crew-comparison.md](./docs/findings-2025-06-14-pi-crew-comparison.md) | 413 | crew-of-pi vs pi-crew comparison — 13 temuan, 2 HIGH, 3 MEDIUM |
+| [improve-architecture.md](./docs/improve-architecture.md) | 170 | Architecture improvement record — 5 consolidations (2025-06-18) |
+| [crew-of-pi-example.json](./docs/crew-of-pi-example.json) | 25 | Example `crew-of-pi.json` config for reference |
+
+**Note:** `plan.md` is historical — it reflects initial design intent. Implementation may have diverged; check `AGENTS.md` files for current behavior.
 
 ---
 
@@ -605,11 +673,11 @@ The main agent delegates code changes to cheap subagent models:
 | Role | Model | Read/Write | Relative Cost |
 |------|-------|-----------|---------------|
 | Main Orchestrator | Session default (e.g., sonnet) | Read-only | $$$—$$$$ |
-| Worker | deepseek-v4-flash | Read + Write | $ |
-| Scout | deepseek-v4-flash | Read-only | $ |
-| Researcher | deepseek-v4-flash | Read-only | $ |
-| Planner | deepseek-v4-flash | Read-only | $ |
-| Reviewer | deepseek-v4-flash | Read-only | $ |
+| Worker | opencode/deepseek-v4-flash-free | Read + Write | $ (free) |
+| Scout | openrouter/deepseek/deepseek-v4-flash | Read-only | $ |
+| Researcher | deepseek/deepseek-v4-flash | Read-only | $ |
+| Planner | claudinio/claudinio | Read-only | $ |
+| Reviewer | openrouter/deepseek/deepseek-v4-pro | Read-only | $$ |
 
 The main agent only does **thinking & orchestration** (reading codebase, planning delegation). All expensive write operations run on cheap models in isolated sessions.
 
