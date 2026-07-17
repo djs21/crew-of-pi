@@ -129,6 +129,9 @@ export async function spawnSubagentSession(
   cwd: string,
   handle: SubagentHandle,
   onProgress?: (turns: number, status: SubagentStatus, usage: UsageStats) => void,
+  fork?: boolean,
+  resolvedSessionFile?: string,
+  parentSessionFile?: string,
 ): Promise<SpawnSessionResult> {
   const infra = getSpawnInfra();
   if (!infra) throw new Error("Spawn infrastructure not initialized. Call setSpawnInfra() in session_start.");
@@ -148,8 +151,18 @@ export async function spawnSubagentSession(
     compaction: { enabled: agentConfig.compaction ?? true },
   });
 
-  const sessionManager = SessionManager.create(cwd);
-  sessionManager.newSession();
+  let sessionManager: SessionManager;
+  if (resolvedSessionFile) {
+    // Explicit session file → resume mode
+    sessionManager = SessionManager.open(resolvedSessionFile);
+  } else if (fork && parentSessionFile) {
+    // Fork: copy parent session with lineage metadata (SDK handles ID + header)
+    sessionManager = SessionManager.forkFrom(parentSessionFile, cwd);
+  } else {
+    // Default: new empty session
+    sessionManager = SessionManager.create(cwd);
+    sessionManager.newSession();
+  }
 
   // Create agent session
   const { session } = await createAgentSession({
@@ -236,6 +249,7 @@ export async function spawnSubagentSession(
 
   const output = getAssistantText(getLastAssistantMessage(session.messages)) || "";
   const sessionFile = session.sessionFile;
+  handle.sessionFile = sessionFile;
 
   return { output, session, sessionFile };
 }
@@ -249,6 +263,8 @@ export function spawnSubagentAsync(
   _signal: AbortSignal | undefined,
   cwd: string,
   ownerSession?: string,
+  parentSessionFile?: string,
+  fork?: boolean,
 ): SubagentHandle {
   const id = generateId(agentConfig.name);
 
@@ -312,6 +328,7 @@ export function spawnSubagentAsync(
       // Pass handle directly — spawnSubagentSession mutates it in-place
       const { output, session: resultSession, sessionFile } = await spawnSubagentSession(
         agentConfig, task, abortController.signal, cwd, handle,
+        fork, undefined, parentSessionFile,
         // Live progress callback — turns/usage from session subscription
         (turns, _status, usage) => {
           handle.turns = turns;

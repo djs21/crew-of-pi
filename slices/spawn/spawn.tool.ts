@@ -44,6 +44,8 @@ const SpawnParams = Type.Object({
   interactive: Type.Optional(Type.Boolean({ description: "Keep session alive for multi-turn conversations" })),
   agentScope: Type.Optional(AgentScopeSchema),
   cwd: Type.Optional(Type.String({ description: "Working directory for the subagent" })),
+  fork: Type.Optional(Type.Boolean({ description: "Copy parent session history into the subagent session" })),
+  sessionFile: Type.Optional(Type.String({ description: "Explicit session file to resume. Takes precedence over fork." })),
 });
 
 export function registerSpawnTool(pi: ExtensionAPI): void {
@@ -66,6 +68,8 @@ export function registerSpawnTool(pi: ExtensionAPI): void {
       "crew_spawn: Results arrive as steering messages — do NOT poll crew_list or fabricate results.",
       "crew_spawn: Subagents run ASYNC in background with --no-extensions by default.",
       "crew_spawn: For interactive subagents, use crew_respond to reply and crew_done to close.",
+      "crew_spawn fork: Use fork=true for tasks needing conversation context. Default fork=false (cheaper, focused).",
+      "crew_spawn fork: When sessionFile is provided, fork is ignored — sessionFile takes precedence.",
     ],
 
     async execute(_toolCallId, params, signal, _onUpdate, ctx: ExtensionContext) {
@@ -107,9 +111,14 @@ export function registerSpawnTool(pi: ExtensionAPI): void {
         agentConfig.interactive = params.interactive;
       }
 
+      // Resolve session source: explicit sessionFile, fork, or nothing
+      const resolvedSessionFile = params.sessionFile;
+      const useFork = !resolvedSessionFile && params.fork;
+      const parentSessionFile = useFork ? ctx.sessionManager.getSessionFile() : undefined;
+
       // Spawn async (non-blocking)
       const ownerSession = ctx.sessionManager.getSessionId();
-      const handle = spawnSubagentAsync(pi, agentConfig, params.task, signal, cwd, ownerSession);
+      const handle = spawnSubagentAsync(pi, agentConfig, params.task, signal, cwd, ownerSession, parentSessionFile, useFork);
 
       // Register with registry and update widget
       registry.registerRunning(handle);
@@ -129,6 +138,7 @@ export function registerSpawnTool(pi: ExtensionAPI): void {
           task: params.task,
           model: agentConfig.model,
           cwd,
+          sessionFile: resolvedSessionFile,
         },
       };
     },
