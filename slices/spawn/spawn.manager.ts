@@ -249,7 +249,7 @@ export async function spawnSubagentSession(
     if (signal.aborted) abortSession();
     else signal.addEventListener("abort", abortSession, { once: true });
   }
-
+  let errorMessage: string | undefined;
   try {
     await session.prompt(task);
 
@@ -266,9 +266,19 @@ export async function spawnSubagentSession(
     handle.turns = usageAccum.turns;
     handle.usage = usageAccum;
   } catch (err: any) {
+    errorMessage = err?.message ?? String(err);
+    console.error(`[crew-of-pi] ${agentConfig.name} (${handle.id}) error:`, errorMessage);
     // Guard: don't overwrite "aborted" set by abort handler
     if (handle.status !== "aborted") {
       handle.status = "failed";
+    }
+    console.error(`[crew-of-pi] ${agentConfig.name} (${handle.id}) error:`, err?.message ?? err);
+    usageAccum.turns = Math.max(0, usageAccum.turns);
+    handle.turns = usageAccum.turns;
+    handle.usage = usageAccum;
+    // Use error message as output so user sees what went wrong
+    if (err?.message) {
+      handle.output = err.message;
     }
     usageAccum.turns = Math.max(0, usageAccum.turns);
     handle.turns = usageAccum.turns;
@@ -277,7 +287,7 @@ export async function spawnSubagentSession(
     unsubscribe();
   }
 
-  const output = getAssistantText(getLastAssistantMessage(session.messages)) || "";
+  const output = getAssistantText(getLastAssistantMessage(session.messages)) || errorMessage || "";
   const sessionFile = session.sessionFile;
   handle.sessionFile = sessionFile;
 
