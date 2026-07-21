@@ -43,7 +43,9 @@ function buildActiveLine(row: WidgetRow, frame: string): string {
     const taskPreview = row.task.length > 40 ? row.task.slice(0, 40).trimEnd() + "…" : row.task;
     line += ` · ${taskPreview}`;
   }
-  line += ` · turn ${row.turns} · ${formatTokens(row.usage.contextTokens)} ctx`;
+  line += row.turns === 0 && row.status === "running"
+    ? ` · ⏳ processing...`
+    : ` · turn ${row.turns} · ${formatTokens(row.usage.contextTokens)} ctx`;
   return line;
 }
 
