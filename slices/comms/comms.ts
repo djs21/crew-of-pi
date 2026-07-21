@@ -7,7 +7,7 @@
 
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { SubagentMessageType } from "../../shared/types";
-import { Database } from "bun:sqlite";
+import { DatabaseSync } from "node:sqlite";
 import * as path from "node:path";
 import * as fs from "node:fs";
 import { homedir } from "node:os";
@@ -36,7 +36,7 @@ const CHANNEL_MAIN = "main";
 // ─── MessageBus (was comms.bus.ts) ──────────────────────────────
 
 export class MessageBus {
-  private db: Database;
+  private db: DatabaseSync;
   private subscriptions: CommsSubscription[] = [];
 
   constructor(cwd?: string) {
@@ -48,7 +48,7 @@ export class MessageBus {
       `crew-of-pi-${projectHash}.db`
     );
     fs.mkdirSync(path.dirname(dbPath), { recursive: true });
-    this.db = new Database(dbPath);
+    this.db = new DatabaseSync(dbPath);
     this.db.exec("PRAGMA journal_mode=WAL");
     this.db.exec(`CREATE TABLE IF NOT EXISTS crew_messages (
       id TEXT PRIMARY KEY,
@@ -62,7 +62,7 @@ export class MessageBus {
 
     // Auto-cleanup: hapus pesan lebih dari 30 hari
     const thirtyDaysAgo = Date.now() - 30 * 24 * 60 * 60 * 1000;
-    this.db.run("DELETE FROM crew_messages WHERE timestamp < ?", [thirtyDaysAgo]);
+    this.db.prepare("DELETE FROM crew_messages WHERE timestamp < ?").run(thirtyDaysAgo);
   }
 
   send(from: string, to: string, type: SubagentMessageType, content: string, inReplyTo?: string): CommsMessage {
@@ -76,23 +76,22 @@ export class MessageBus {
       inReplyTo,
     };
 
-    this.db.run(
+    this.db.prepare(
       "INSERT INTO crew_messages (id, from_id, to_id, type, content, timestamp, in_reply_to) VALUES (?, ?, ?, ?, ?, ?, ?)",
-      [message.id, message.from, message.to, message.type, message.content, message.timestamp, message.inReplyTo ?? null]
-    );
+    ).run(message.id, message.from, message.to, message.type, message.content, message.timestamp, message.inReplyTo ?? null);
     this.deliver(message);
     return message;
   }
 
   getMessagesFor(recipientId: string): CommsMessage[] {
-    const rows = this.db.query(
+    const rows = this.db.prepare(
       "SELECT id, from_id, to_id, type, content, timestamp, in_reply_to FROM crew_messages WHERE to_id = ? OR to_id = 'broadcast' ORDER BY timestamp"
     ).all(recipientId);
     return rows.map(rowToMessage);
   }
 
   getUnreadFor(recipientId: string, sinceTimestamp: number): CommsMessage[] {
-    const rows = this.db.query(
+    const rows = this.db.prepare(
       "SELECT id, from_id, to_id, type, content, timestamp, in_reply_to FROM crew_messages WHERE (to_id = ? OR to_id = 'broadcast') AND timestamp > ? ORDER BY timestamp"
     ).all(recipientId, sinceTimestamp);
     return rows.map(rowToMessage);
@@ -108,26 +107,24 @@ export class MessageBus {
   }
 
   getHistory(): CommsMessage[] {
-    return this.db.query(
+    return this.db.prepare(
       "SELECT id, from_id, to_id, type, content, timestamp, in_reply_to FROM crew_messages ORDER BY timestamp"
     ).all().map(rowToMessage);
   }
 
   injectHistory(message: CommsMessage): void {
-    this.db.run(
+    this.db.prepare(
       "INSERT OR IGNORE INTO crew_messages (id, from_id, to_id, type, content, timestamp, in_reply_to) VALUES (?, ?, ?, ?, ?, ?, ?)",
-      [message.id, message.from, message.to, message.type, message.content, message.timestamp, message.inReplyTo ?? null]
-    );
+    ).run(message.id, message.from, message.to, message.type, message.content, message.timestamp, message.inReplyTo ?? null);
   }
 
   clear(): void {
-    this.db.run("DELETE FROM crew_messages");
+    this.db.prepare("DELETE FROM crew_messages").run();
     this.subscriptions = [];
   }
 
   get count(): number {
-    const row = this.db.query("SELECT COUNT(*) AS cnt FROM crew_messages").get() as { cnt: number };
-    return row.cnt;
+    const row = this.db.prepare("SELECT COUNT(*) AS cnt FROM crew_messages").get() as { cnt: number };
   }
 
   private deliver(message: CommsMessage): void {
