@@ -261,9 +261,6 @@ export async function spawnSubagentSession(
     } else if (lastAssistant?.stopReason === "aborted") {
       handle.status = "aborted";
     } else {
-    } else if (lastAssistant?.stopReason === "aborted") {
-      handle.status = "aborted";
-    } else {
       handle.status = "completed";
     }
 
