@@ -22,6 +22,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { getSpawnInfra } from "./spawn.tool";
 import { syncWidgetFromRegistry } from "../widget/widget.updater";
+import { refreshWidget } from "../widget/widget.updater";
 
 // ─── Helpers ────────────────────────────────────────────────────
 
@@ -227,10 +228,11 @@ export async function spawnSubagentSession(
     // Track current tool for live widget updates
     if (event.type === "tool_execution_start") {
       handle['_tool'] = `${event.toolName}(${JSON.stringify(event.args).slice(0, 40)})`;
+      refreshWidget();
     } else if (event.type === "tool_execution_end") {
       handle['_tool'] = undefined;
+      refreshWidget();
     }
-
     if (event.type !== "turn_end") return;
 
     const msg = event.message;
