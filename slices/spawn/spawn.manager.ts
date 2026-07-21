@@ -228,6 +228,8 @@ export async function spawnSubagentSession(
       handle['_tool'] = undefined;
     }
 
+    if (event.type !== "turn_end") return;
+
     const msg = event.message;
     if (msg.role === "assistant") {
       const asst = msg as AssistantMessage;
