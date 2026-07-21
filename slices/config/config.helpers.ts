@@ -40,7 +40,6 @@ export function readConfig(): CrewConfig {
 
 export function writeConfig(config: CrewConfig, targetPath?: string): boolean {
   const configPath = targetPath ?? getConfigPath();
-  const configPath = getConfigPath();
   try {
     fs.writeFileSync(configPath, JSON.stringify(config, null, 2) + "\n", "utf-8");
     return true;
