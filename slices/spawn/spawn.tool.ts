@@ -18,6 +18,7 @@ import { syncWidgetFromRegistry } from "../widget/widget.updater";
 
 export interface SpawnInfra {
   modelRegistry: ModelRegistry;
+  modelRuntime?: any;
   agentDir: string;
   extensionDir: string;
 }

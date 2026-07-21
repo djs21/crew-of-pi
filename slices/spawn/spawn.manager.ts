@@ -197,6 +197,7 @@ export async function spawnSubagentSession(
     settingsManager,
     authStorage: infra.modelRegistry.authStorage,
     modelRegistry: infra.modelRegistry,
+    modelRuntime: infra.modelRuntime,
   });
 
   // Auto-merge: if agent has extensions, include their tools in the active set

@@ -65,6 +65,7 @@ export default function (pi: ExtensionAPI) {
     // Store spawn infrastructure for subagent sessions
     setSpawnInfra({
       modelRegistry: ctx.modelRegistry,
+      modelRuntime: (ctx as any).modelRuntime,
       agentDir: getAgentDir(),
       extensionDir: bundledAgentsPath,
     });
