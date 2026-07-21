@@ -18,8 +18,6 @@ export function getProjectConfigPath(cwd?: string): string | null {
   const projectPath = path.join(cwd, ".pi", "crew-of-pi.json");
   return fs.existsSync(path.dirname(projectPath)) ? projectPath : null;
 }
-  return path.join(os.homedir(), ".pi", "agent", "crew-of-pi.json");
-}
 
 // ─── Read/Write Config ──────────────────────────────────────────
 
