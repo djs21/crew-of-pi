@@ -276,14 +276,6 @@ export async function spawnSubagentSession(
     if (handle.status !== "aborted") {
       handle.status = "failed";
     }
-    console.error(`[crew-of-pi] ${agentConfig.name} (${handle.id}) error:`, err?.message ?? err);
-    usageAccum.turns = Math.max(0, usageAccum.turns);
-    handle.turns = usageAccum.turns;
-    handle.usage = usageAccum;
-    // Use error message as output so user sees what went wrong
-    if (err?.message) {
-      handle.output = err.message;
-    }
     usageAccum.turns = Math.max(0, usageAccum.turns);
     handle.turns = usageAccum.turns;
     handle.usage = usageAccum;
