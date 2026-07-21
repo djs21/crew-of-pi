@@ -7,6 +7,11 @@
 
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { SubagentMessageType } from "../../shared/types";
+import { Database } from "bun:sqlite";
+import * as path from "node:path";
+import * as fs from "node:fs";
+import { homedir } from "node:os";
+import * as crypto from "node:crypto";
 
 // ─── Types (was comms.types.ts) ─────────────────────────────────
 
@@ -20,11 +25,6 @@ export interface CommsMessage {
   inReplyTo?: string;
 }
 
-interface CommsChannel {
-  name: string;
-  messages: CommsMessage[];
-}
-
 interface CommsSubscription {
   channel: string;
   handler: (message: CommsMessage) => void;
@@ -36,13 +36,38 @@ const CHANNEL_MAIN = "main";
 // ─── MessageBus (was comms.bus.ts) ──────────────────────────────
 
 export class MessageBus {
-  private messages: CommsMessage[] = [];
+  private db: Database;
   private subscriptions: CommsSubscription[] = [];
-  private nextId: number = 0;
+
+  constructor(cwd?: string) {
+    const projectHash = cwd
+      ? crypto.createHash("sha256").update(cwd).digest("hex").slice(0, 12)
+      : "default";
+    const dbPath = path.join(
+      homedir(), ".local", "share", "pi",
+      `crew-of-pi-${projectHash}.db`
+    );
+    fs.mkdirSync(path.dirname(dbPath), { recursive: true });
+    this.db = new Database(dbPath);
+    this.db.exec("PRAGMA journal_mode=WAL");
+    this.db.exec(`CREATE TABLE IF NOT EXISTS crew_messages (
+      id TEXT PRIMARY KEY,
+      from_id TEXT NOT NULL,
+      to_id TEXT NOT NULL,
+      type TEXT NOT NULL,
+      content TEXT NOT NULL,
+      timestamp INTEGER NOT NULL,
+      in_reply_to TEXT
+    )`);
+
+    // Auto-cleanup: hapus pesan lebih dari 30 hari
+    const thirtyDaysAgo = Date.now() - 30 * 24 * 60 * 60 * 1000;
+    this.db.run("DELETE FROM crew_messages WHERE timestamp < ?", [thirtyDaysAgo]);
+  }
 
   send(from: string, to: string, type: SubagentMessageType, content: string, inReplyTo?: string): CommsMessage {
     const message: CommsMessage = {
-      id: `msg-${this.nextId++}`,
+      id: crypto.randomUUID(),
       from,
       to,
       type,
@@ -51,23 +76,26 @@ export class MessageBus {
       inReplyTo,
     };
 
-    this.messages.push(message);
+    this.db.run(
+      "INSERT INTO crew_messages (id, from_id, to_id, type, content, timestamp, in_reply_to) VALUES (?, ?, ?, ?, ?, ?, ?)",
+      [message.id, message.from, message.to, message.type, message.content, message.timestamp, message.inReplyTo ?? null]
+    );
     this.deliver(message);
     return message;
   }
 
   getMessagesFor(recipientId: string): CommsMessage[] {
-    return this.messages.filter(
-      (m) => m.to === recipientId || m.to === CHANNEL_BROADCAST,
-    );
+    const rows = this.db.query(
+      "SELECT id, from_id, to_id, type, content, timestamp, in_reply_to FROM crew_messages WHERE to_id = ? OR to_id = 'broadcast' ORDER BY timestamp"
+    ).all(recipientId);
+    return rows.map(rowToMessage);
   }
 
   getUnreadFor(recipientId: string, sinceTimestamp: number): CommsMessage[] {
-    return this.messages.filter(
-      (m) =>
-        (m.to === recipientId || m.to === CHANNEL_BROADCAST) &&
-        m.timestamp > sinceTimestamp,
-    );
+    const rows = this.db.query(
+      "SELECT id, from_id, to_id, type, content, timestamp, in_reply_to FROM crew_messages WHERE (to_id = ? OR to_id = 'broadcast') AND timestamp > ? ORDER BY timestamp"
+    ).all(recipientId, sinceTimestamp);
+    return rows.map(rowToMessage);
   }
 
   subscribe(channel: string, handler: (message: CommsMessage) => void): () => void {
@@ -80,22 +108,26 @@ export class MessageBus {
   }
 
   getHistory(): CommsMessage[] {
-    return [...this.messages];
+    return this.db.query(
+      "SELECT id, from_id, to_id, type, content, timestamp, in_reply_to FROM crew_messages ORDER BY timestamp"
+    ).all().map(rowToMessage);
   }
 
   injectHistory(message: CommsMessage): void {
-    this.messages.push(message);
-    const num = parseInt(message.id.replace("msg-", ""), 10);
-    if (!isNaN(num) && num >= this.nextId) this.nextId = num + 1;
+    this.db.run(
+      "INSERT OR IGNORE INTO crew_messages (id, from_id, to_id, type, content, timestamp, in_reply_to) VALUES (?, ?, ?, ?, ?, ?, ?)",
+      [message.id, message.from, message.to, message.type, message.content, message.timestamp, message.inReplyTo ?? null]
+    );
   }
 
   clear(): void {
-    this.messages = [];
+    this.db.run("DELETE FROM crew_messages");
     this.subscriptions = [];
   }
 
   get count(): number {
-    return this.messages.length;
+    const row = this.db.query("SELECT COUNT(*) AS cnt FROM crew_messages").get() as { cnt: number };
+    return row.cnt;
   }
 
   private deliver(message: CommsMessage): void {
@@ -127,51 +159,22 @@ export function getMessageBus(): MessageBus {
 }
 
 export function resetMessageBus(): void {
-  _instance = null;
-}
-
-// ─── Persistence (was comms.persistence.ts) ─────────────────────
-
-/**
- * Restore bus state from session entries on startup.
- */
-export function restoreBusState(pi: ExtensionAPI, ctx: ExtensionContext): void {
-  const entries = ctx.sessionManager.getEntries();
-  const messages = loadPersistedMessages(entries);
-
-  if (messages.length === 0) return;
-
-  const bus = getMessageBus();
-  for (const msg of messages) {
-    bus.injectHistory(msg);
+  if (_instance) {
+    _instance.db.close();
+    _instance = null;
   }
 }
 
-/**
- * Persist a single message to session.
- */
-export function persistMessage(pi: ExtensionAPI, message: CommsMessage): void {
-  pi.appendEntry("crew-bus-message", {
-    id: message.id,
-    from: message.from,
-    to: message.to,
-    type: message.type,
-    content: message.content,
-    timestamp: message.timestamp,
-    inReplyTo: message.inReplyTo,
-  });
-}
-
-function loadPersistedMessages(entries: any[]): CommsMessage[] {
-  const messages: CommsMessage[] = [];
-
-  for (const entry of entries) {
-    if (entry.customType === "crew-bus-message" && entry.data) {
-      messages.push(entry.data as unknown as CommsMessage);
-    }
-  }
-
-  return messages;
+function rowToMessage(row: any): CommsMessage {
+  return {
+    id: row.id,
+    from: row.from_id,
+    to: row.to_id,
+    type: row.type as SubagentMessageType,
+    content: row.content,
+    timestamp: row.timestamp,
+    inReplyTo: row.in_reply_to ?? undefined,
+  };
 }
 
 // ─── Relay (was comms.relay.ts) ─────────────────────────────────
@@ -214,7 +217,6 @@ export function respondToSubagent(
 ): CommsMessage {
   const bus = getMessageBus();
   const sent = bus.send(CHANNEL_MAIN, subagentId, "response", message, inReplyTo);
-  persistMessage(pi, sent);
   return sent;
 }
 
@@ -224,5 +226,4 @@ export function respondToSubagent(
 export function broadcastToAll(pi: ExtensionAPI, message: string): void {
   const bus = getMessageBus();
   const sent = bus.send(CHANNEL_MAIN, "broadcast", "broadcast", message);
-  persistMessage(pi, sent);
 }

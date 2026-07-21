@@ -5,7 +5,7 @@
 import { type ExtensionAPI, type ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { Text } from "@earendil-works/pi-tui";
-import { getMessageBus, persistMessage } from "../comms/comms";
+import { getMessageBus } from "../comms/comms";
 import { getAgentRegistry } from "../agents/agents.registry";
 import { validateOwnership } from "./lifecycle.shared";
 
@@ -52,8 +52,6 @@ export function registerRespondTool(pi: ExtensionAPI): void {
         params.message,
       );
 
-      // Persist to session
-      persistMessage(pi, sentMessage);
 
       // Send response to subagent session (fire-and-forget prompt)
       if (owned.handle.session) {

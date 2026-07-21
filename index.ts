@@ -28,7 +28,7 @@ import { registerPromptInjector, setPromptConfig } from "./slices/prompt/prompt.
 import { registerChainTool } from "./slices/chain/chain.tool";
 
 // ─── Comms ──────────────────────────────────────────────────────
-import { getMessageBus, resetMessageBus, restoreBusState, registerCommsRelay } from "./slices/comms/comms";
+import { getMessageBus, resetMessageBus, registerCommsRelay } from "./slices/comms/comms";
 
 // ─── Lifecycle ──────────────────────────────────────────────────
 import { registerAbortTool } from "./slices/lifecycle/lifecycle.abort";
@@ -90,8 +90,6 @@ export default function (pi: ExtensionAPI) {
       includeRules: true,
     });
 
-    // Restore message bus from previous session entries
-    restoreBusState(pi, ctx);
 
     // Display discovery warnings as notifications
     for (const warning of registry.getUnshownWarnings()) {
