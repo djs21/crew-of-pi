@@ -18,6 +18,8 @@ import {
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import type { AgentConfig, SubagentHandle, SubagentStatus, UsageStats } from "../../shared/types";
 import { generateId, INITIAL_USAGE, MAX_CONCURRENCY } from "../../shared/types";
+import * as fs from "node:fs";
+import * as path from "node:path";
 import { getSpawnInfra } from "./spawn.tool";
 import { syncWidgetFromRegistry } from "../widget/widget.updater";
 
@@ -77,6 +79,21 @@ function createSubagentResourceLoader(
   for (const ext of agentConfig.extensions) {
     if (ext.type === "path" && ext.resolved) {
       additionalPaths.push(ext.resolved);
+    } else if (ext.type === "pi-package") {
+      // Resolve git: and npm: extensions to filesystem paths
+      const stripped = ext.value.replace(/^(git:|npm:)/, "");
+      let pkgPath: string | null = null;
+      if (ext.value.startsWith("git:")) {
+        pkgPath = path.join(infra.agentDir, "git", stripped);
+      } else if (ext.value.startsWith("npm:")) {
+        // Check packages/ first, then extensions/
+        const npmDir = path.join(infra.agentDir, "packages", stripped);
+        const extDir = path.join(infra.agentDir, "extensions", stripped.split("/").pop() ?? stripped);
+        pkgPath = fs.existsSync(npmDir) ? npmDir : fs.existsSync(extDir) ? extDir : null;
+      }
+      if (pkgPath && fs.existsSync(pkgPath)) {
+        additionalPaths.push(pkgPath);
+      }
     }
   }
 
@@ -95,10 +112,15 @@ function createSubagentResourceLoader(
         ...base,
         extensions: base.extensions.filter((ext) => {
           if (ext.resolvedPath.startsWith(infra.extensionDir)) return false;
-          return agentConfig.extensions.some((agentExt) =>
-            ext.resolvedPath === agentExt.resolved ||
-            ext.resolvedPath.includes(`/${agentExt.value}/`),
-          );
+          return agentConfig.extensions.some((agentExt) => {
+            // Path type: exact match by resolved path
+            if (agentExt.resolved && ext.resolvedPath === agentExt.resolved) return true;
+            // Pi-package type: strip git:/npm: prefix, match by value
+            const matchValue = agentExt.type === "pi-package"
+              ? agentExt.value.replace(/^(git:|npm:)/, "")
+              : agentExt.value;
+            return ext.resolvedPath.includes(`/${matchValue}/`);
+          });
         }),
       };
     },
