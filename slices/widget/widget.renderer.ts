@@ -46,6 +46,9 @@ function buildActiveLine(row: WidgetRow, frame: string): string {
   line += ` · turn ${row.turns} · ${formatTokens(row.usage.contextTokens)} ctx`;
   return line;
 }
+
+function buildSettledLine(row: WidgetRow): string {
+  const model = row.model ?? "…";
   const icon = STATUS_ICON[row.status] ?? "✅";
   return `  ${icon} ${row.id} (${model}) · ${formatTokens(row.usage.contextTokens)} ctx`;
 }
