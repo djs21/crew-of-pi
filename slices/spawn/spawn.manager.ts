@@ -170,13 +170,21 @@ export async function spawnSubagentSession(
     agentDir: infra.agentDir,
     model,
     thinkingLevel: agentConfig.thinking as any,
-    tools: agentConfig.tools,
     resourceLoader,
     sessionManager,
     settingsManager,
     authStorage: infra.modelRegistry.authStorage,
     modelRegistry: infra.modelRegistry,
   });
+
+  // Auto-merge: if agent has extensions, include their tools in the active set
+  const allToolNames = session.getAllTools().map((t: any) => t.name);
+  const activeTools = agentConfig.extensions?.length
+    ? [...new Set([...(agentConfig.tools ?? []), ...allToolNames])]
+    : agentConfig.tools;
+  if (activeTools) {
+    session.setActiveToolsByName(activeTools);
+  }
 
   // Name the session for pi session list
   const brief = taskPreview(task);
