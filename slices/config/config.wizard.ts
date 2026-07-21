@@ -10,11 +10,12 @@ import type { ExtensionOption, SkillOption } from "./config.types";
 import { MAIN_AGENT_KEY } from "./config.types";
 import { formatModelLabel, discoverExtensions, discoverSkills, getAgentNames, validateModel, validatePath } from "./config.helpers";
 import { showModelSelector, type ModelOption } from "./config.model-selector";
+import { getAgentRegistry } from "../agents/agents.registry";
 
 // ─── Agent Picker ───────────────────────────────────────────────
 
 export async function pickAgent(ctx: ExtensionCommandContext): Promise<string | undefined> {
-  const existing = getAgentNames();
+  const existing = getAgentRegistry().getNames();
   const options = [MAIN_AGENT_KEY, ...existing];
   if (options.length === 1) {
     options.push("worker", "scout", "researcher", "planner", "reviewer");
