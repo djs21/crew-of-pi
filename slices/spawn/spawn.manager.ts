@@ -257,6 +257,10 @@ export async function spawnSubagentSession(
     const lastAssistant = getLastAssistantMessage(session.messages);
     if (lastAssistant?.stopReason === "error") {
       handle.status = "failed";
+      errorMessage = getAssistantText(lastAssistant) || "Model error (no details)";
+    } else if (lastAssistant?.stopReason === "aborted") {
+      handle.status = "aborted";
+    } else {
     } else if (lastAssistant?.stopReason === "aborted") {
       handle.status = "aborted";
     } else {
