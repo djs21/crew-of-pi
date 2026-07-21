@@ -25,9 +25,9 @@ export class WidgetStore {
       model: handle.model,
       task: handle.task,
       _tool: handle._tool,
+    };
 
-
-    if (existingIndex >= 0) {
+  if (existingIndex >= 0) {
       this.state.rows[existingIndex] = row;
     } else {
       this.state.rows.push(row);
