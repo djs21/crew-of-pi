@@ -35,11 +35,17 @@ function isSettledStatus(status: string): boolean {
 function buildActiveLine(row: WidgetRow, frame: string): string {
   const model = row.model ?? "…";
   const icon = STATUS_ICON[row.status] ?? frame;
-  return `${icon} ${row.id} (${model}) · turn ${row.turns} · ${formatTokens(row.usage.contextTokens)} ctx`;
+  let line = `${icon} ${row.id} (${model})`;
+  if (row._tool) {
+    line += ` · ${row._tool}`;
+  }
+  if (row.task) {
+    const taskPreview = row.task.length > 40 ? row.task.slice(0, 40).trimEnd() + "…" : row.task;
+    line += ` · ${taskPreview}`;
+  }
+  line += ` · turn ${row.turns} · ${formatTokens(row.usage.contextTokens)} ctx`;
+  return line;
 }
-
-function buildSettledLine(row: WidgetRow): string {
-  const model = row.model ?? "…";
   const icon = STATUS_ICON[row.status] ?? "✅";
   return `  ${icon} ${row.id} (${model}) · ${formatTokens(row.usage.contextTokens)} ctx`;
 }

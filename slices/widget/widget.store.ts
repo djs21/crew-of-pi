@@ -24,7 +24,7 @@ export class WidgetStore {
       usage: handle.usage,
       model: handle.model,
       task: handle.task,
-    };
+      _tool: (handle as any)._tool,
 
     if (existingIndex >= 0) {
       this.state.rows[existingIndex] = row;

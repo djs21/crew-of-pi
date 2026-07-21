@@ -12,6 +12,7 @@ export interface WidgetRow {
   usage: UsageStats;
   model?: string;
   task: string;
+  _tool?: string;
 }
 
 export interface WidgetState {

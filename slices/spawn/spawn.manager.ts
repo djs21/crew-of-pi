@@ -220,6 +220,12 @@ export async function spawnSubagentSession(
   const usageAccum: UsageStats = { ...INITIAL_USAGE };
 
   const unsubscribe = session.subscribe((event: AgentSessionEvent) => {
+    // Track current tool for live widget updates
+    if (event.type === "tool_execution_start") {
+      (handle as any)._tool = `${event.toolName}(${JSON.stringify(event.args).slice(0, 40)})`;
+    } else if (event.type === "tool_execution_end") {
+      (handle as any)._tool = undefined;
+    }
     if (event.type !== "turn_end") return;
 
     const msg = event.message;
@@ -281,6 +287,9 @@ export async function spawnSubagentSession(
   }
 
   const output = getAssistantText(getLastAssistantMessage(session.messages)) || errorMessage || "";
+  if (handle.status === "failed" && !errorMessage) {
+    console.error(`[crew-of-pi] DEBUG ${agentConfig.name} (${handle.id}): failed but no errorMessage`);
+  }
   const sessionFile = session.sessionFile;
   handle.sessionFile = sessionFile;
 
