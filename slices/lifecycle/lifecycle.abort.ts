@@ -37,6 +37,13 @@ function abortSubagent(
   // Set registry status
   registry.updateRunning(handle.id, { status: "aborted" });
 
+  // Persist to DB
+  const db = (registry as any)._db;
+  if (db) {
+    db.upsertStatus(handle.id, { status: "aborted", updated_at: Date.now() });
+    db.insertEvent(handle.id, "aborted", "aborted", handle.turns, handle.usage?.contextTokens ?? 0);
+  }
+
   // Persist result
   pi.appendEntry("crew-subagent-result", {
     id: handle.id,

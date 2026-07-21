@@ -90,6 +90,13 @@ export function doneSubagent(
 ): void {
   registry.updateRunning(handle.id, { status: "completed" });
 
+  // Persist to DB
+  const db = (registry as any)._db;
+  if (db) {
+    db.upsertStatus(handle.id, { status: "completed", completed_at: Date.now(), updated_at: Date.now() });
+    db.insertEvent(handle.id, "completed", "completed", handle.turns, handle.usage?.contextTokens ?? 0);
+  }
+
   pi.appendEntry("crew-subagent-result", {
     id: handle.id,
     agentName: handle.agentName,

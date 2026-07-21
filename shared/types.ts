@@ -70,6 +70,64 @@ export interface SubagentHandle {
   usage: UsageStats;
 }
 
+export interface SubagentStatusRow {
+  id: string;
+  agentName: string;
+  status: SubagentStatus;
+  task: string;
+  model?: string;
+  interactive: boolean;
+  spawnedAt: number;
+  ownerSession?: string;
+  turns: number;
+  usageInput: number;
+  usageOutput: number;
+  usageCacheRead: number;
+  usageCacheWrite: number;
+  usageCost: number;
+  usageContextTokens: number;
+  sessionFile?: string;
+  lastHeartbeat: number;
+  completedAt?: number;
+  updatedAt: number;
+}
+
+export interface SubagentEventRow {
+  id: number;
+  subagentId: string;
+  eventType: string;
+  status: string;
+  turns: number;
+  usageContextTokens: number;
+  metadata?: string;
+  createdAt: number;
+}
+
+/** Convert DB row to handle (for restore from DB on startup) */
+export function statusRowToHandle(
+  row: SubagentStatusRow,
+  runtime?: { abortController?: AbortController; session?: any }
+): SubagentHandle {
+  return {
+    id: row.id,
+    agentName: row.agentName,
+    status: row.status as SubagentStatus,
+    task: row.task,
+    model: row.model,
+    interactive: row.interactive,
+    spawnedAt: row.spawnedAt,
+    ownerSession: row.ownerSession,
+    turns: row.turns,
+    usage: {
+      input: row.usageInput, output: row.usageOutput,
+      cacheRead: row.usageCacheRead, cacheWrite: row.usageCacheWrite,
+      cost: row.usageCost, contextTokens: row.usageContextTokens, turns: row.turns,
+    },
+    sessionFile: row.sessionFile,
+    abortController: runtime?.abortController,
+    session: runtime?.session,
+  };
+}
 export interface SpawnConfig {
   agent: string;
   task: string;

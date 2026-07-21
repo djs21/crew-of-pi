@@ -9,6 +9,7 @@ import { Type } from "typebox";
 import type { ExtensionContext, ModelRegistry } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
 import { type AgentScope } from "../../shared/types";
+import type { SubagentDb } from "./spawn.db";
 import { getAgentRegistry } from "../agents/agents.registry";
 import { findAgent } from "../agents/agents.discovery";
 import { spawnSubagentAsync } from "./spawn.manager";
@@ -21,6 +22,7 @@ export interface SpawnInfra {
   modelRuntime?: any;
   agentDir: string;
   extensionDir: string;
+  subagentDb: SubagentDb;
 }
 
 let _infra: SpawnInfra | undefined;

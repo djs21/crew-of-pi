@@ -4,6 +4,7 @@
  */
 
 import type { AgentConfig, AgentDiscoveryWarning, AgentScope, SubagentHandle } from "../../shared/types";
+import { statusRowToHandle } from "../../shared/types";
 import { discoverAgents } from "./agents.discovery";
 import { loadCrewConfig, applyConfigOverrides } from "./agents.discovery";
 
@@ -17,6 +18,20 @@ export class AgentRegistry {
   private shownWarnings: Set<string> = new Set();
   private cwd: string = "";
   private scope: AgentScope = "user";
+  private _db: any; // SubagentDb — set externally via setDb
+
+  setDb(db: any): void {
+    this._db = db;
+  }
+
+  async restoreFromDb(): Promise<void> {
+    if (!this._db) return;
+    const rows = this._db.getAllStatuses();
+    for (const row of rows) {
+      const handle = statusRowToHandle(row);
+      this.runningAgents.set(handle.id, handle);
+    }
+  }
 
   /**
    * Refresh the agent list from disk.

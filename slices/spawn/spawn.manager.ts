@@ -21,6 +21,7 @@ import { generateId, INITIAL_USAGE, MAX_CONCURRENCY } from "../../shared/types";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { getSpawnInfra } from "./spawn.tool";
+import type { SubagentDb } from "./spawn.db";
 import { syncWidgetFromRegistry } from "../widget/widget.updater";
 import { refreshWidget } from "../widget/widget.updater";
 
@@ -341,41 +342,47 @@ export function spawnSubagentAsync(
     abortController,
   };
 
-  // Persist spawn state
-  pi.appendEntry("crew-subagent-spawn", {
-    id,
-    agentName: agentConfig.name,
-    task,
-    status: "running",
-    spawnedAt: Date.now(),
-    model: agentConfig.model,
-    ownerSession,
-  });
+  // Persist to DB — spawned
+  const infra = getSpawnInfra();
+  if (infra?.subagentDb) {
+    infra.subagentDb.upsertStatus(id, {
+      id, agent_name: agentConfig.name, status: "spawned", task,
+      model: agentConfig.model ?? null, interactive: agentConfig.interactive ? 1 : 0,
+      spawned_at: Date.now(), owner_session: ownerSession ?? null,
+      turns: 0, usage_input: 0, usage_output: 0, usage_cache_read: 0, usage_cache_write: 0,
+      usage_cost: 0, usage_context_tokens: 0, last_heartbeat: Date.now(), updated_at: Date.now(),
+    });
+    infra.subagentDb.insertEvent(id, "spawned", "spawned", 0, 0);
+  }
 
   // Update widget immediately after spawn
   syncWidgetFromRegistry(pi);
 
   // Background async spawn with concurrency limit
   (async () => {
+    let _lastHeartbeat = 0;
     await concurrencyTracker.acquire();
 
     // If abort was called while waiting for concurrency slot, bail immediately
     if (abortController.signal.aborted) {
       handle.status = "aborted";
       syncWidgetFromRegistry(pi);
-      pi.appendEntry("crew-subagent-result", {
-        id: handle.id,
-        agentName: agentConfig.name,
-        status: "aborted",
-        abortedAt: Date.now(),
-        reason: "aborted before start",
-      });
+      const infra2 = getSpawnInfra();
+      if (infra2?.subagentDb) {
+        infra2.subagentDb.upsertStatus(handle.id, { status: "aborted", updated_at: Date.now() });
+        infra2.subagentDb.insertEvent(handle.id, "aborted", "aborted", 0, 0);
+      }
       return;
     }
 
     // Mark as running now that process is actually starting
     handle.status = "running";
     syncWidgetFromRegistry(pi);
+    const infra3 = getSpawnInfra();
+    if (infra3?.subagentDb) {
+      infra3.subagentDb.upsertStatus(handle.id, { status: "running", updated_at: Date.now() });
+      infra3.subagentDb.insertEvent(handle.id, "running", "running", 0, 0);
+    }
 
     try {
       // Pass handle directly — spawnSubagentSession mutates it in-place
@@ -387,6 +394,19 @@ export function spawnSubagentAsync(
           handle.turns = turns;
           handle.usage = usage;
           syncWidgetFromRegistry(pi);
+          // Debounced DB write: tiap 5 turn atau 5 detik
+          if (turns % 5 === 0 || Date.now() - _lastHeartbeat > 5000) {
+            const infra4 = getSpawnInfra();
+            if (infra4?.subagentDb) {
+              infra4.subagentDb.upsertStatus(handle.id, {
+                turns, usage_input: usage.input, usage_output: usage.output,
+                usage_cache_read: usage.cacheRead, usage_cache_write: usage.cacheWrite,
+                usage_cost: usage.cost, usage_context_tokens: usage.contextTokens,
+                last_heartbeat: Date.now(), updated_at: Date.now(),
+              });
+              _lastHeartbeat = Date.now();
+            }
+          }
         },
       );
 
@@ -397,16 +417,19 @@ export function spawnSubagentAsync(
         // Already handled by crew_abort — just sync widget
         syncWidgetFromRegistry(pi);
       } else {
-        // Persist result
-        pi.appendEntry("crew-subagent-result", {
-          id: handle.id,
-          agentName: handle.agentName,
-          output,
-          usage: handle.usage,
-          status: handle.status,
-          completedAt: Date.now(),
-          sessionFile,
-        });
+        // Persist result to DB
+        const infra5 = getSpawnInfra();
+        if (infra5?.subagentDb) {
+          infra5.subagentDb.upsertStatus(handle.id, {
+            status: handle.status, turns: handle.turns,
+            usage_input: handle.usage.input, usage_output: handle.usage.output,
+            usage_cache_read: handle.usage.cacheRead, usage_cache_write: handle.usage.cacheWrite,
+            usage_cost: handle.usage.cost, usage_context_tokens: handle.usage.contextTokens,
+            session_file: sessionFile ?? null, completed_at: Date.now(),
+            last_heartbeat: Date.now(), updated_at: Date.now(),
+          });
+          infra5.subagentDb.insertEvent(handle.id, handle.status, handle.status, handle.turns, handle.usage.contextTokens);
+        }
 
         // Update widget
         syncWidgetFromRegistry(pi);
@@ -447,6 +470,18 @@ export function spawnSubagentAsync(
         }
       }
     } catch (error: any) {
+      // Persist failure to DB
+      const infra6 = getSpawnInfra();
+      if (infra6?.subagentDb) {
+        infra6.subagentDb.upsertStatus(handle.id, {
+          status: handle.status === "aborted" ? "aborted" : "failed",
+          last_error: error?.message ?? String(error),
+          last_heartbeat: Date.now(), updated_at: Date.now(),
+        });
+        infra6.subagentDb.insertEvent(handle.id, "error",
+          handle.status === "aborted" ? "aborted" : "failed",
+          handle.turns, handle.usage?.contextTokens ?? 0, error?.message ?? String(error));
+      }
       // If already aborted by crew_abort, don't send bogus crash message
       if (handle.status === "aborted") {
         syncWidgetFromRegistry(pi);

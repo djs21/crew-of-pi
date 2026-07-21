@@ -8,9 +8,6 @@
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { SubagentMessageType } from "../../shared/types";
 import { DatabaseSync } from "node:sqlite";
-import * as path from "node:path";
-import * as fs from "node:fs";
-import { homedir } from "node:os";
 import * as crypto from "node:crypto";
 
 // ─── Types (was comms.types.ts) ─────────────────────────────────
@@ -39,16 +36,8 @@ export class MessageBus {
   private db: DatabaseSync;
   private subscriptions: CommsSubscription[] = [];
 
-  constructor(cwd?: string) {
-    const projectHash = cwd
-      ? crypto.createHash("sha256").update(cwd).digest("hex").slice(0, 12)
-      : "default";
-    const dbPath = path.join(
-      homedir(), ".local", "share", "pi",
-      `crew-of-pi-${projectHash}.db`
-    );
-    fs.mkdirSync(path.dirname(dbPath), { recursive: true });
-    this.db = new DatabaseSync(dbPath);
+  constructor(db: DatabaseSync) {
+    this.db = db;
     this.db.exec("PRAGMA journal_mode=WAL");
     this.db.exec(`CREATE TABLE IF NOT EXISTS crew_messages (
       id TEXT PRIMARY KEY,
@@ -150,14 +139,21 @@ let _instance: MessageBus | null = null;
 
 export function getMessageBus(): MessageBus {
   if (!_instance) {
-    _instance = new MessageBus();
+    throw new Error("MessageBus not initialized. Call initMessageBus(db) first.");
   }
+  return _instance;
+}
+
+export function initMessageBus(db: DatabaseSync): MessageBus {
+  if (_instance) {
+    _instance.db.close();
+  }
+  _instance = new MessageBus(db);
   return _instance;
 }
 
 export function resetMessageBus(): void {
   if (_instance) {
-    _instance.db.close();
     _instance = null;
   }
 }

@@ -8,6 +8,10 @@
 import type { ExtensionAPI, ModelRegistry } from "@earendil-works/pi-coding-agent";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import * as path from "node:path";
+import * as crypto from "node:crypto";
+import * as fs from "node:fs";
+import { homedir } from "node:os";
+import { DatabaseSync } from "node:sqlite";
 
 // ─── Agent Discovery ────────────────────────────────────────────
 import { getAgentRegistry, resetAgentRegistry } from "./slices/agents/agents.registry";
@@ -15,6 +19,7 @@ import { loadCrewConfig, setBundledAgentsDir } from "./slices/agents/agents.disc
 
 // ─── Spawn ──────────────────────────────────────────────────────
 import { registerSpawnTool, setSpawnInfra } from "./slices/spawn/spawn.tool";
+import { SubagentDb } from "./slices/spawn/spawn.db";
 import { getWidgetStore, resetWidgetStore } from "./slices/widget/widget.store";
 
 // ─── Blockers ───────────────────────────────────────────────────
@@ -28,7 +33,7 @@ import { registerPromptInjector, setPromptConfig } from "./slices/prompt/prompt.
 import { registerChainTool } from "./slices/chain/chain.tool";
 
 // ─── Comms ──────────────────────────────────────────────────────
-import { getMessageBus, resetMessageBus, registerCommsRelay } from "./slices/comms/comms";
+import { getMessageBus, resetMessageBus, registerCommsRelay, initMessageBus } from "./slices/comms/comms";
 
 // ─── Lifecycle ──────────────────────────────────────────────────
 import { registerAbortTool } from "./slices/lifecycle/lifecycle.abort";
@@ -62,12 +67,34 @@ export default function (pi: ExtensionAPI) {
     // Refresh with bundled agents
     registry.refresh(ctx.cwd, "both");
 
+    // Init shared DB (single connection)
+    const projectHash = crypto.createHash("sha256").update(ctx.cwd).digest("hex").slice(0, 12);
+    const dbPath = path.join(homedir(), ".local", "share", "pi", `crew-of-pi-${projectHash}.db`);
+    fs.mkdirSync(path.dirname(dbPath), { recursive: true });
+    const db = new DatabaseSync(dbPath);
+    db.exec("PRAGMA journal_mode=WAL");
+
+    // Init shared instances
+    initMessageBus(db);
+    const subagentDb = new SubagentDb(db);
+
+    // Orphan stale sessions from previous runs
+    const orphaned = subagentDb.orphanStaleSessions();
+    if (orphaned > 0) {
+      ctx.ui.notify(`Found ${orphaned} stale sub-agent(s) from previous session`, "warning");
+    }
+
+    // Restore surviving handles from DB
+    registry.setDb(subagentDb);
+    await registry.restoreFromDb();
+
     // Store spawn infrastructure for subagent sessions
     setSpawnInfra({
       modelRegistry: ctx.modelRegistry,
       modelRuntime: ctx.modelRegistry['runtime'],
       agentDir: getAgentDir(),
       extensionDir: bundledAgentsPath,
+      subagentDb,
     });
 
     // Load main agent tool config from crew-of-pi.json
@@ -116,6 +143,8 @@ export default function (pi: ExtensionAPI) {
     resetAgentRegistry();
     resetMessageBus();
     resetWidgetStore();
+    // DB connection is intentionally NOT closed here — it's a singleton
+    // that could be reused. Process exit will clean it up.
   });
 
   // ─── Register Tools ─────────────────────────────────────────
