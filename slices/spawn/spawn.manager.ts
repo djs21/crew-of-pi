@@ -223,11 +223,10 @@ export async function spawnSubagentSession(
   const unsubscribe = session.subscribe((event: AgentSessionEvent) => {
     // Track current tool for live widget updates
     if (event.type === "tool_execution_start") {
-      (handle as any)._tool = `${event.toolName}(${JSON.stringify(event.args).slice(0, 40)})`;
+      handle['_tool'] = `${event.toolName}(${JSON.stringify(event.args).slice(0, 40)})`;
     } else if (event.type === "tool_execution_end") {
-      (handle as any)._tool = undefined;
+      handle['_tool'] = undefined;
     }
-    if (event.type !== "turn_end") return;
 
     const msg = event.message;
     if (msg.role === "assistant") {
