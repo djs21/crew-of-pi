@@ -13,7 +13,8 @@ Working documents for crew-of-pi development: architecture plans, audit findings
 | **findings-2025-06-14-pi-crew-comparison.md** | Komparasi crew-of-pi vs pi-crew (original) — 13 temuan, 2 HIGH, 3 MEDIUM, 8 LOW/NOTE |
 | **plan-migrate-create-agent-session.md** | Migration plan: child_process → createAgentSession (gap #9 fix) |
 | **improve-architecture.md** | Architecture improvement record — lifecycle triplet unification (2025-06-18) |
-| **2026-07-21-sqlite-message-bus.md** | Plan: ganti storage message bus dari array ke SQLite (bun:sqlite) — persistence, auto-cleanup 30 hari, DB per project |
+| **2026-07-21-sqlite-message-bus.md** | Plan: ganti storage message bus dari array ke SQLite — persistence, auto-cleanup 30 hari, DB per project |
+| **plans/dokumen-plan.md** | Plan: SQLite sub-agent system — state in-memory ke SQLite, 1 tabel baru + event log |
 ## Local Contracts
 
 1. **Durable records** — do not delete unless content is fully superseded by ADRs or AGENTS.md docs
