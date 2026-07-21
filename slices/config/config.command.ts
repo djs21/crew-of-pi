@@ -14,9 +14,11 @@
 import type { ExtensionAPI, ExtensionCommandContext, RegisteredCommand } from "@earendil-works/pi-coding-agent";
 import type { CrewConfig } from "./config.types";
 import { DEFAULT_DISABLED_TOOLS, ALL_MAIN_AGENT_TOOLS, MAIN_AGENT_KEY } from "./config.types";
-import { readConfig, writeConfig, getAgentNames } from "./config.helpers";
+import { readConfig, writeConfig, getAgentNames, getProjectConfigPath, getConfigPath } from "./config.helpers";
 import { pickAgent, pickField, editModel, editExtensions, editSkills } from "./config.wizard";
 import { editMainAgentTools } from "./config.main-agent";
+import * as fs from "node:fs";
+import * as path from "node:path";
 
 // ─── Top-Level Handler ──────────────────────────────────────────
 
@@ -56,31 +58,51 @@ async function handleConfigSubcommand(args: string, ctx: ExtensionCommandContext
 
   if (directAgentName && directField) {
     await editFieldForAgent(config, directAgentName, directField, ctx);
+    await promptSaveLocation(config, ctx);
     return;
   }
 
-  // Interactive wizard
-  const agentName = await pickAgent(ctx);
-  if (!agentName) return;
+  // Interactive wizard with navigation loop
+  while (true) {
+    const agentName = await pickAgent(ctx);
+    if (!agentName) break;
 
-  if (agentName === MAIN_AGENT_KEY) {
-    await editMainAgentTools(config, ctx);
-    return;
+    if (agentName === MAIN_AGENT_KEY) {
+      await editMainAgentTools(config, ctx);
+    } else {
+      // Per-agent field edit loop
+      while (true) {
+        const field = await pickField(ctx);
+        if (!field) break;
+
+        if (field === "show") {
+          ctx.ui.notify(`Konfigurasi untuk "${agentName}":\n${formatAgentConfig(config, agentName)}`, "info");
+          continue;
+        }
+
+        await editFieldForAgent(config, agentName, field, ctx);
+
+        // Ask: edit another field, or done with this agent
+        const next = await ctx.ui.select("Edit field lain?", [
+          "Edit field lain",
+          "✅ Selesai dengan agent ini",
+        ]);
+        if (next !== "Edit field lain") break;
+      }
+    }
+
+    // Ask: configure another agent, or exit
+    const another = await ctx.ui.select("Config agent lain?", [
+      "Config agent lain",
+      "✅ Keluar & simpan",
+    ]);
+    if (another !== "Config agent lain") break;
   }
 
-  const field = await pickField(ctx);
-  if (!field) return;
-
-  if (field === "show") {
-    ctx.ui.notify(`Konfigurasi untuk "${agentName}":\n${formatAgentConfig(config, agentName)}`, "info");
-    return;
-  }
-
-  await editFieldForAgent(config, agentName, field, ctx);
+  await promptSaveLocation(config, ctx);
 }
 
-// ─── Per-Agent Edit + Save ──────────────────────────────────────
-
+// ─── Per-Agent Edit (modifies config in-memory, saves to global) ──
 async function editFieldForAgent(
   config: CrewConfig,
   agentName: string,
@@ -104,11 +126,29 @@ async function editFieldForAgent(
     agent.skills = newSkills.length > 0 ? newSkills : undefined;
   }
 
-  if (writeConfig(config)) {
-    ctx.ui.notify(`✅ Config untuk "${agentName}" berhasil disimpan!`, "info");
-    ctx.ui.notify(`ℹ️ Jalankan /reload agar perubahan langsung berlaku`, "info");
-  } else {
-    ctx.ui.notify(`❌ Gagal menyimpan config! Periksa permissions.`, "error");
+  writeConfig(config);
+  ctx.ui.notify(`✅ Config untuk "${agentName}" berhasil disimpan (global)!`, "info");
+}
+
+// ─── Save Location Prompt ──────────────────────────────────────
+async function promptSaveLocation(config: CrewConfig, ctx: ExtensionCommandContext): Promise<void> {
+  const projectPath = getProjectConfigPath(ctx.cwd);
+  if (!projectPath) {
+    ctx.ui.notify("ℹ️ Config tersimpan di global (~/.pi/agent/). Tidak ada folder .pi/ di project ini.", "info");
+    return;
+  }
+
+  const choice = await ctx.ui.select("Simpan config ke?", [
+    "Global (~/.pi/agent/)",
+    `Project (.pi/)`
+  ]);
+
+  if (choice?.startsWith("Project")) {
+    fs.mkdirSync(path.dirname(projectPath), { recursive: true });
+    if (writeConfig(config, projectPath)) {
+      ctx.ui.notify(`✅ Config tersimpan di ${projectPath}`, "info");
+    }
+    ctx.ui.notify("ℹ️ Config global tetap ada. Jalankan /reload agar project config aktif.", "info");
   }
 }
 

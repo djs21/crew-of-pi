@@ -13,6 +13,14 @@ export function getConfigPath(): string {
   return path.join(os.homedir(), ".pi", "agent", "crew-of-pi.json");
 }
 
+export function getProjectConfigPath(cwd?: string): string | null {
+  if (!cwd) return null;
+  const projectPath = path.join(cwd, ".pi", "crew-of-pi.json");
+  return fs.existsSync(path.dirname(projectPath)) ? projectPath : null;
+}
+  return path.join(os.homedir(), ".pi", "agent", "crew-of-pi.json");
+}
+
 // ─── Read/Write Config ──────────────────────────────────────────
 
 export function readConfig(): CrewConfig {
@@ -32,7 +40,8 @@ export function readConfig(): CrewConfig {
   }
 }
 
-export function writeConfig(config: CrewConfig): boolean {
+export function writeConfig(config: CrewConfig, targetPath?: string): boolean {
+  const configPath = targetPath ?? getConfigPath();
   const configPath = getConfigPath();
   try {
     fs.writeFileSync(configPath, JSON.stringify(config, null, 2) + "\n", "utf-8");
