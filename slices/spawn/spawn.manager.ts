@@ -200,6 +200,9 @@ export async function spawnSubagentSession(
     modelRuntime: infra.modelRuntime,
   });
 
+  // Emit session_start so extensions can register providers with the real modelRegistry
+  session.extensionRunner.emit({ type: "session_start", reason: "startup" }).catch(() => {});
+
   // Auto-merge: if agent has extensions, include their tools in the active set
   const allToolNames = session.getAllTools().map((t: any) => t.name);
   const activeTools = agentConfig.extensions?.length
