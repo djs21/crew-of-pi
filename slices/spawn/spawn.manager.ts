@@ -49,24 +49,6 @@ function taskPreview(task: string, maxLen = 50): string {
 
 // ─── Model Resolution ───────────────────────────────────────────
 
-function resolveModel(
-  agentConfig: AgentConfig,
-  modelRegistry: ModelRegistry,
-): { model: Model<Api> | undefined; warning?: string } {
-  if (!agentConfig.model) return { model: undefined };
-
-  const slashIdx = agentConfig.model.indexOf("/");
-  if (slashIdx === -1) return { model: undefined, warning: `Invalid model "${agentConfig.model}"` };
-
-  const provider = agentConfig.model.slice(0, slashIdx).trim();
-  const modelId = agentConfig.model.slice(slashIdx + 1).trim();
-  if (!provider || !modelId) return { model: undefined, warning: `Invalid model "${agentConfig.model}"` };
-
-  const found = modelRegistry.find(provider, modelId);
-  if (!found) return { model: undefined, warning: `Model "${agentConfig.model}" not found, using session default` };
-
-  return { model: found };
-}
 
 // ─── Resource Loader Per Subagent ───────────────────────────────
 
@@ -158,11 +140,7 @@ export async function spawnSubagentSession(
   const infra = getSpawnInfra();
   if (!infra) throw new Error("Spawn infrastructure not initialized. Call setSpawnInfra() in session_start.");
 
-  // Resolve model
-  const { model, warning: modelWarning } = resolveModel(agentConfig, infra.modelRegistry);
-  if (modelWarning) {
-    console.warn(`[crew-of-pi] ${agentConfig.name}: ${modelWarning}`);
-  }
+  // Model will be resolved after extensions are loaded in createAgentSession
 
   // Setup resource loader with agent-specific extensions + system prompt
   const resourceLoader = createSubagentResourceLoader(agentConfig, cwd, infra);
@@ -190,7 +168,7 @@ export async function spawnSubagentSession(
   const { session } = await createAgentSession({
     cwd,
     agentDir: infra.agentDir,
-    model,
+    model: undefined, // resolved after extensions loaded
     thinkingLevel: agentConfig.thinking as any,
     resourceLoader,
     sessionManager,
@@ -206,6 +184,17 @@ export async function spawnSubagentSession(
     : agentConfig.tools;
   if (activeTools) {
     session.setActiveToolsByName(activeTools);
+  }
+
+  // Resolve model AFTER extensions are loaded (extensions register custom models)
+  if (agentConfig.model) {
+    const sliced = agentConfig.model.split("/", 2);
+    if (sliced.length === 2) {
+      const resolvedModel = infra.modelRegistry.find(sliced[0].trim(), sliced[1].trim());
+      if (resolvedModel) {
+        session.setModel(resolvedModel).catch(() => {});
+      }
+    }
   }
 
   // Name the session for pi session list
