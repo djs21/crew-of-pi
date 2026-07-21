@@ -233,6 +233,10 @@ export async function spawnSubagentSession(
       handle['_tool'] = undefined;
       refreshWidget();
     }
+    // Refresh widget on turn_start so user sees progress immediately
+    if (event.type === "turn_start") {
+      refreshWidget();
+    }
     if (event.type !== "turn_end") return;
 
     const msg = event.message;
