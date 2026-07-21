@@ -368,6 +368,7 @@ function loadAgentsFromDir(
 
   for (const entry of entries) {
     if (!entry.name.endsWith(".md")) continue;
+    if (entry.name.toLowerCase() === "agents.md") continue;
     if (!entry.isFile() && !entry.isSymbolicLink()) continue;
 
     const filePath = path.join(dir, entry.name);
