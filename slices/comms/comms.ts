@@ -95,17 +95,7 @@ export class MessageBus {
     };
   }
 
-  getHistory(): CommsMessage[] {
-    return this.db.prepare(
-      "SELECT id, from_id, to_id, type, content, timestamp, in_reply_to FROM crew_messages ORDER BY timestamp"
-    ).all().map(rowToMessage);
-  }
 
-  injectHistory(message: CommsMessage): void {
-    this.db.prepare(
-      "INSERT OR IGNORE INTO crew_messages (id, from_id, to_id, type, content, timestamp, in_reply_to) VALUES (?, ?, ?, ?, ?, ?, ?)",
-    ).run(message.id, message.from, message.to, message.type, message.content, message.timestamp, message.inReplyTo ?? null);
-  }
 
   clear(): void {
     this.db.prepare("DELETE FROM crew_messages").run();
@@ -114,6 +104,7 @@ export class MessageBus {
 
   get count(): number {
     const row = this.db.prepare("SELECT COUNT(*) AS cnt FROM crew_messages").get() as { cnt: number };
+    return row.cnt;
   }
 
   private deliver(message: CommsMessage): void {
@@ -216,7 +207,4 @@ export function respondToSubagent(
 /**
  * Broadcast from main agent to all subagents.
  */
-export function broadcastToAll(pi: ExtensionAPI, message: string): void {
-  const bus = getMessageBus();
-  const sent = bus.send(CHANNEL_MAIN, "broadcast", "broadcast", message);
-}
+
