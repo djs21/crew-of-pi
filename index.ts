@@ -76,6 +76,7 @@ export default function (pi: ExtensionAPI) {
 
     // Init shared instances
     initMessageBus(db);
+    registerCommsRelay(pi);
     const subagentDb = new SubagentDb(db);
 
     // Orphan stale sessions from previous runs
@@ -163,6 +164,5 @@ export default function (pi: ExtensionAPI) {
   // ─── Register Events ────────────────────────────────────────
   registerBlocker(pi);
   registerPromptInjector(pi);
-  registerCommsRelay(pi);
   registerWidgetUpdater(pi);
 }
