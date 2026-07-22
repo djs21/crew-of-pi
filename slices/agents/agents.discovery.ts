@@ -524,22 +524,3 @@ export function findAgent(
   return agents.find((a) => a.name === agentName);
 }
 
-/**
- * Format agent list for display or system prompt injection.
- */
-export function formatAgentList(
-  agents: AgentConfig[],
-): string {
-  if (agents.length === 0) return "none";
-  return agents
-    .map((a) => {
-      const parts = [`- **${a.name}**: ${a.description} (model: ${a.model ?? "default"}`];
-      if (a.tools) parts.push(`tools: ${a.tools.join(", ")}`);
-      if (a.extensions.length > 0) {
-        parts.push(`extensions: ${a.extensions.map((e) => e.value).join(", ")}`);
-      }
-      parts.push(")");
-      return parts.join(", ");
-    })
-    .join("\n");
-}

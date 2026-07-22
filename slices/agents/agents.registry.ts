@@ -117,29 +117,10 @@ export class AgentRegistry {
   }
 
   /**
-   * Get counts for display.
-   */
-  getCounts(): { running: number; completed: number; failed: number } {
-    const vals = Array.from(this.runningAgents.values());
-    return {
-      running: vals.filter((h) => h.status === "running" || h.status === "spawned").length,
-      completed: vals.filter((h) => h.status === "completed").length,
-      failed: vals.filter((h) => h.status === "failed" || h.status === "aborted").length,
-    };
-  }
-
-  /**
    * Abort all running subagents.
    */
   clear(): void {
     this.runningAgents.clear();
-  }
-
-  /**
-   * Get all discovery warnings (includes already-shown).
-   */
-  getDiscoveryWarnings(): AgentDiscoveryWarning[] {
-    return this.discoveryWarnings;
   }
 
   /**

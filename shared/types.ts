@@ -56,8 +56,6 @@ export interface SubagentHandle {
   id: string;            // unique identifier (crew-<agent>-<random>)
   agentName: string;
   status: SubagentStatus;
-  pid?: number;
-  proc?: any;  // ChildProcess reference for interactive subagents
   session?: any; // AgentSession reference (post-migration)
   sessionFile?: string; // path ke session file (untuk resume dan fork lineage)
   abortController?: AbortController; // dedicated abort controller for this subagent
@@ -175,22 +173,6 @@ export interface PromptInjectionConfig {
   rules: string[];
 }
 
-// ─── Widget Types ───────────────────────────────────────────────
-
-export interface WidgetEntry {
-  id: string;
-  agentName: string;
-  status: SubagentStatus;
-  turns: number;
-  usage: UsageStats;
-  model?: string;
-}
-
-export interface WidgetState {
-  entries: WidgetEntry[];
-  collapsed: boolean;
-}
-
 // ─── Shared Utilities ───────────────────────────────────────────
 
 export interface UsageStats {
@@ -218,6 +200,4 @@ export function generateId(agentName: string): string {
   return `crew-${agentName}-${random}`;
 }
 
-export const MAX_PARALLEL_TASKS = 8;
 export const MAX_CONCURRENCY = 4;
-export const PER_TASK_OUTPUT_CAP = 50 * 1024; // 50KB cap per task output
