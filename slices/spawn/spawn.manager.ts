@@ -388,7 +388,6 @@ export function spawnSubagentAsync(
       // Pass handle directly — spawnSubagentSession mutates it in-place
       const { output, session: resultSession, sessionFile } = await spawnSubagentSession(
         agentConfig, task, abortController.signal, cwd, handle,
-        fork, undefined, parentSessionFile,
         // Live progress callback — turns/usage from session subscription
         (turns, _status, usage) => {
           handle.turns = turns;
@@ -408,6 +407,7 @@ export function spawnSubagentAsync(
             }
           }
         },
+        fork, undefined, parentSessionFile,
       );
 
       // handle.status, handle.turns, handle.session, handle.usage
