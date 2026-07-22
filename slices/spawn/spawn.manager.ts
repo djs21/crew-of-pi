@@ -16,7 +16,7 @@ import {
   createAgentSession,
 } from "@earendil-works/pi-coding-agent";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import type { AgentConfig, SubagentHandle, SubagentStatus, UsageStats } from "../../shared/types";
+import type { AgentConfig, SubagentHandle, SubagentStatus, TranscriptEntry, UsageStats } from "../../shared/types";
 import { generateId, INITIAL_USAGE, MAX_CONCURRENCY } from "../../shared/types";
 import * as fs from "node:fs";
 import * as path from "node:path";
@@ -225,6 +225,13 @@ export async function spawnSubagentSession(
   // Live turn tracking via session subscription
   const usageAccum: UsageStats = { ...INITIAL_USAGE };
 
+  const MAX_TRANSCRIPT = 200;
+  function pushTranscript(handle: SubagentHandle, entry: TranscriptEntry): void {
+    if (!handle._transcript) handle._transcript = [];
+    if (handle._transcript.length >= MAX_TRANSCRIPT) handle._transcript.shift();
+    handle._transcript.push(entry);
+  }
+
   const unsubscribe = session.subscribe((event: AgentSessionEvent) => {
     // Track current tool for live widget updates
     if (event.type === "tool_execution_start") {
@@ -238,6 +245,32 @@ export async function spawnSubagentSession(
     if (event.type === "turn_start") {
       refreshWidget();
     }
+
+    // ── Transcript collection ──
+    if (event.type === "message_update") {
+      const msgEvent = (event as any).assistantMessageEvent;
+      if (msgEvent?.type === "text_delta") {
+        const last = handle._transcript?.[handle._transcript.length - 1];
+        if (last?.type === "text") { last.content += msgEvent.delta; }
+        else { pushTranscript(handle, { type: "text", content: msgEvent.delta, timestamp: Date.now() }); }
+      } else if (msgEvent?.type === "thinking_delta") {
+        const last = handle._transcript?.[handle._transcript.length - 1];
+        if (last?.type === "thinking") { last.content += msgEvent.delta; }
+        else { pushTranscript(handle, { type: "thinking", content: msgEvent.delta, timestamp: Date.now() }); }
+      }
+    }
+
+    if (event.type === "tool_execution_update" && (event as any).output) {
+      const evt = event as any;
+      pushTranscript(handle, { type: "tool_output", content: evt.output, timestamp: Date.now(), toolName: evt.toolName });
+    }
+
+    if (event.type === "tool_execution_end") {
+      const evt = event as any;
+      const result = typeof evt.result === "string" ? evt.result : JSON.stringify(evt.result ?? "");
+      pushTranscript(handle, { type: "tool_result", content: result, timestamp: Date.now(), toolName: evt.toolName, isError: evt.isError });
+    }
+
     if (event.type !== "turn_end") return;
 
     const msg = event.message;

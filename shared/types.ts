@@ -66,6 +66,8 @@ export interface SubagentHandle {
   ownerSession?: string;
   turns: number;
   usage: UsageStats;
+  /** @internal transcript of streaming events, populated by spawnSubagentSession */
+  _transcript?: TranscriptEntry[];
 }
 
 export interface SubagentStatusRow {
@@ -194,6 +196,14 @@ export const INITIAL_USAGE: UsageStats = {
   contextTokens: 0,
   turns: 0,
 };
+
+export interface TranscriptEntry {
+  type: "thinking" | "text" | "tool_output" | "tool_result" | "error";
+  content: string;
+  timestamp: number;
+  toolName?: string;
+  isError?: boolean;
+}
 
 export function generateId(agentName: string): string {
   const random = Math.random().toString(36).substring(2, 8);

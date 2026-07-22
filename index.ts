@@ -42,6 +42,7 @@ import { registerDoneTool } from "./slices/lifecycle/lifecycle.done";
 
 // ─── Crew List ─────────────────────────────────────────────────
 import { registerCrewListTool } from "./slices/crew-list/crew-list.tool";
+import { registerLogTool, registerInjectTool } from "./slices/spawn/spawn.monitor";
 
 // ─── Config Command ─────────────────────────────────────────────
 import { registerConfigCommand } from "./slices/config/config.command";
@@ -157,6 +158,8 @@ export default function (pi: ExtensionAPI) {
   registerRespondTool(pi);
   registerDoneTool(pi);
   registerCrewListTool(pi);
+  registerLogTool(pi);
+  registerInjectTool(pi);
 
   // ─── Register Commands ──────────────────────────────────────
   registerConfigCommand(pi);
