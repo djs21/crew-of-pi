@@ -68,6 +68,8 @@ export interface SubagentHandle {
   usage: UsageStats;
   /** @internal transcript of streaming events, populated by spawnSubagentSession */
   _transcript?: TranscriptEntry[];
+  /** @internal currently running tool name */
+  _tool?: string;
 }
 
 export interface SubagentStatusRow {

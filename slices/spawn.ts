@@ -276,7 +276,9 @@ export async function spawnSubagentSession(
         onProgress?.(handle.turns, "running", currentUsage);
         break;
       }
-      case "tool_execution_start":
+      case "tool_execution_start": {
+        handle._tool = event.toolName;
+        onProgress?.(handle.turns, "running", currentUsage);
         transcript.push({
           type: "tool_output",
           toolName: event.toolName,
@@ -284,7 +286,10 @@ export async function spawnSubagentSession(
           timestamp: Date.now(),
         });
         break;
-      case "tool_execution_end":
+      }
+      case "tool_execution_end": {
+        handle._tool = undefined;
+        onProgress?.(handle.turns, "running", currentUsage);
         transcript.push({
           type: "tool_result",
           toolName: event.toolName,
@@ -293,6 +298,7 @@ export async function spawnSubagentSession(
           isError: event.isError,
         });
         break;
+      }
     }
   });
 

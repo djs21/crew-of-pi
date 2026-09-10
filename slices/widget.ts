@@ -27,11 +27,12 @@ const SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", 
 const SPINNER_INTERVAL_MS = 80;
 
 const STATUS_ICON: Record<string, string> = {
-  running: "⏳",
+  running: "⚡",
   spawned: "⏳",
   completed: "✅",
   failed: "❌",
   aborted: "⏹️",
+  stalled: "⚠️",
   orphaned: "👻",
 };
 
@@ -48,6 +49,7 @@ export class WidgetStore {
       usage: handle.usage ?? { ...INITIAL_USAGE },
       model: handle.model,
       task: handle.task,
+      _tool: handle._tool,
     };
 
     if (existingIndex >= 0) {
@@ -67,7 +69,7 @@ export class WidgetStore {
   getActiveSummaries(): WidgetRow[] {
     const active = this.rows.filter((r) => r.status === "spawned" || r.status === "running");
     const settled = this.rows.filter(
-      (r) => r.status === "completed" || r.status === "failed" || r.status === "aborted",
+      (r) => r.status === "completed" || r.status === "failed" || r.status === "aborted" || r.status === "orphaned",
     );
     return [...active, ...settled.slice(-MAX_SETTLED_ROWS)];
   }
@@ -91,18 +93,17 @@ function formatTokens(count: number): string {
 }
 
 function isSettledStatus(status: string): boolean {
-  return status === "completed" || status === "failed" || status === "aborted";
+  return status === "completed" || status === "failed" || status === "aborted" || status === "orphaned";
 }
 
 function buildActiveLine(row: WidgetRow, frame: string): string {
   const model = row.model ?? "…";
-  const icon = STATUS_ICON[row.status] ?? frame;
-  let line = `${icon} ${row.id} (${model})`;
-  if (row._tool) line += ` · ${row._tool}`;
-  if (row.task) {
-    const taskPreview = row.task.length > 40 ? row.task.slice(0, 40).trimEnd() + "…" : row.task;
-    line += ` · ${taskPreview}`;
-  }
+  const icon = row.status === "running" ? frame : (STATUS_ICON[row.status] ?? frame);
+  const taskPreview = row.task ? (row.task.length > 40 ? row.task.slice(0, 40).trimEnd() + "…" : row.task) : "";
+
+  let line = `${icon} ${row.agentName} (${model})`;
+  if (taskPreview) line += ` · ${taskPreview}`;
+  if (row._tool) line += ` · [${row._tool}]`;
   line += row.turns === 0 && row.status === "running"
     ? ` · ⏳ processing...`
     : ` · turn ${row.turns} · ${formatTokens(row.usage.contextTokens)} ctx`;
@@ -112,7 +113,12 @@ function buildActiveLine(row: WidgetRow, frame: string): string {
 function buildSettledLine(row: WidgetRow): string {
   const model = row.model ?? "…";
   const icon = STATUS_ICON[row.status] ?? "✅";
-  return `  ${icon} ${row.id} (${model}) · ${formatTokens(row.usage.contextTokens)} ctx`;
+  const taskPreview = row.task ? (row.task.length > 40 ? row.task.slice(0, 40).trimEnd() + "…" : row.task) : "";
+
+  let line = `  ${icon} ${row.agentName} (${model})`;
+  if (taskPreview) line += ` · ${taskPreview}`;
+  line += ` · turn ${row.turns} · ${formatTokens(row.usage.contextTokens)} ctx`;
+  return line;
 }
 
 interface ActiveWidget {
