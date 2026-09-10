@@ -427,6 +427,9 @@ export async function spawnSubagentAsync(
 
       syncWidgetFromRegistry(pi);
 
+      registry.updateRunning(subagentId, { status: handle.status, turns: handle.turns, usage: handle.usage });
+      syncWidgetFromRegistry(pi);
+
       const isInteractiveWaiting = agentConfig.interactive && handle.status === "completed";
       const icon = result.exitCode === 0 ? (isInteractiveWaiting ? "💬" : "✅") : "❌";
       const preview = taskPreview(task);
