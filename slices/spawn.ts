@@ -277,12 +277,13 @@ export async function spawnSubagentSession(
         break;
       }
       case "tool_execution_start": {
-        handle._tool = event.toolName;
+        const toolName = (event as any).toolName || (event as any).tool?.name || (event as any).name || "tool";
+        handle._tool = toolName;
         onProgress?.(handle.turns, "running", currentUsage);
         transcript.push({
           type: "tool_output",
-          toolName: event.toolName,
-          content: `Called tool: ${event.toolName}`,
+          toolName,
+          content: `Called tool: ${toolName}`,
           timestamp: Date.now(),
         });
         break;
@@ -290,9 +291,10 @@ export async function spawnSubagentSession(
       case "tool_execution_end": {
         handle._tool = undefined;
         onProgress?.(handle.turns, "running", currentUsage);
+        const toolName = (event as any).toolName || (event as any).tool?.name || (event as any).name || "tool";
         transcript.push({
           type: "tool_result",
-          toolName: event.toolName,
+          toolName,
           content: String(event.result ?? ""),
           timestamp: Date.now(),
           isError: event.isError,

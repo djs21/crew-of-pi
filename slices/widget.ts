@@ -99,13 +99,17 @@ function isSettledStatus(status: string): boolean {
 function buildActiveLine(row: WidgetRow, frame: string): string {
   const model = row.model ?? "…";
   const icon = row.status === "running" ? frame : (STATUS_ICON[row.status] ?? frame);
-  const taskPreview = row.task ? (row.task.length > 40 ? row.task.slice(0, 40).trimEnd() + "…" : row.task) : "";
+  const taskPreview = row.task ? (row.task.length > 35 ? row.task.slice(0, 35).trimEnd() + "…" : row.task) : "";
 
   let line = `${icon} ${row.agentName} (${model})`;
-  if (taskPreview) line += ` · ${taskPreview}`;
-  if (row._tool) line += ` · [${row._tool}]`;
-  line += row.turns === 0 && row.status === "running"
-    ? ` · ⏳ processing...`
+  if (row._tool) {
+    line += ` [${row._tool}]`;
+  }
+  if (taskPreview) {
+    line += ` · ${taskPreview}`;
+  }
+  line += row.turns === 0 && row.status === "running" && !row._tool
+    ? ` · ⏳ thinking...`
     : ` · turn ${row.turns} · ${formatTokens(row.usage.contextTokens)} ctx`;
   return line;
 }
@@ -113,10 +117,17 @@ function buildActiveLine(row: WidgetRow, frame: string): string {
 function buildSettledLine(row: WidgetRow): string {
   const model = row.model ?? "…";
   const icon = STATUS_ICON[row.status] ?? "✅";
-  const taskPreview = row.task ? (row.task.length > 40 ? row.task.slice(0, 40).trimEnd() + "…" : row.task) : "";
+  const taskPreview = row.task ? (row.task.length > 35 ? row.task.slice(0, 35).trimEnd() + "…" : row.task) : "";
 
   let line = `  ${icon} ${row.agentName} (${model})`;
-  if (taskPreview) line += ` · ${taskPreview}`;
+  if (row.status === "aborted") {
+    line += ` · [cancelled]`;
+  } else if (row.status === "failed") {
+    line += ` · [failed]`;
+  }
+  if (taskPreview) {
+    line += ` · ${taskPreview}`;
+  }
   line += ` · turn ${row.turns} · ${formatTokens(row.usage.contextTokens)} ctx`;
   return line;
 }
