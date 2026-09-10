@@ -259,12 +259,23 @@ export async function spawnSubagentSession(
         infra.subagentDb.insertEvent(handle.id, "turn_start", "running", handle.turns, currentUsage.contextTokens);
         onProgress?.(handle.turns, "running", currentUsage);
         break;
-      case "turn_end":
+      case "turn_end": {
         handle.status = "running";
+        const msg = (event as any).message;
+        if (msg && msg.role === "assistant" && msg.usage) {
+          const u = msg.usage;
+          currentUsage.input += u.input ?? 0;
+          currentUsage.output += u.output ?? 0;
+          currentUsage.cacheRead += u.cacheRead ?? 0;
+          currentUsage.cacheWrite += u.cacheWrite ?? 0;
+          currentUsage.cost += u.cost?.total ?? 0;
+          currentUsage.contextTokens = (u.input ?? 0) + (u.output ?? 0) + (u.cacheRead ?? 0);
+        }
         maybeHeartbeat("running");
         infra.subagentDb.insertEvent(handle.id, "turn_end", "running", handle.turns, currentUsage.contextTokens);
         onProgress?.(handle.turns, "running", currentUsage);
         break;
+      }
       case "tool_execution_start":
         transcript.push({
           type: "tool_output",
