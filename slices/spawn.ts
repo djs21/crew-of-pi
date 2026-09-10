@@ -93,13 +93,23 @@ function getLastAssistantMessage(messages: AgentMessage[]): AssistantMessage | u
   return undefined;
 }
 
-function getAssistantText(message: AssistantMessage | undefined): string | undefined {
-  if (!message) return undefined;
-  const texts: string[] = [];
-  for (const part of message.content) {
-    if (part.type === "text") texts.push(part.text);
+function getAssistantText(messages: AgentMessage[]): string | undefined {
+  const assistantMsgs = (messages as any[]).filter((m) => m && m.role === "assistant");
+  if (assistantMsgs.length === 0) return undefined;
+
+  for (let i = assistantMsgs.length - 1; i >= 0; i--) {
+    const msg = assistantMsgs[i];
+    const texts: string[] = [];
+    if (Array.isArray(msg.content)) {
+      for (const part of msg.content) {
+        if (part.type === "text" && part.text?.trim()) texts.push(part.text.trim());
+      }
+    } else if (typeof msg.content === "string" && msg.content.trim()) {
+      texts.push(msg.content.trim());
+    }
+    if (texts.length > 0) return texts.join("\n\n");
   }
-  return texts.length > 0 ? texts.join("\n") : undefined;
+  return undefined;
 }
 
 function taskPreview(task: string, maxLen = 50): string {
@@ -320,8 +330,7 @@ export async function spawnSubagentSession(
     await session.prompt(subagentTask);
 
     const messages = session.messages as AgentMessage[];
-    const lastAssistant = getLastAssistantMessage(messages);
-    const outputText = getAssistantText(lastAssistant) ?? "(no output generated)";
+    const outputText = getAssistantText(messages) ?? "(no output generated)";
 
     handle.status = "completed";
     handle.usage = { ...currentUsage };
