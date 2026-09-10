@@ -30,6 +30,7 @@ export interface FrontmatterFields {
   name?: string;
   description?: string;
   tools?: string;
+  denyTools?: string;
   model?: string;
   thinking?: string;
   skills?: string;
@@ -124,7 +125,10 @@ function parseAgentDoc(
   if (frontmatter.tools) {
     tools = frontmatter.tools.split(",").map((t) => t.trim()).filter(Boolean);
   }
-
+  let denyTools: string[] | undefined;
+  if (frontmatter.denyTools) {
+    denyTools = frontmatter.denyTools.split(",").map((t) => t.trim()).filter(Boolean);
+  }
   const { model, warning: modelWarning } = parseModel(frontmatter.model);
   if (modelWarning) warnings.push({ ...modelWarning, filePath });
 
@@ -151,6 +155,7 @@ function parseAgentDoc(
     name,
     description,
     tools,
+    denyTools,
     model,
     thinking,
     skills,
@@ -303,6 +308,7 @@ export function applyConfigOverrides(agents: AgentConfig[], config: CrewConfig):
       model: override.model ?? agent.model,
       thinking: override.thinking ?? agent.thinking,
       skills: override.skills ?? agent.skills,
+      denyTools: override.denyTools ?? agent.denyTools,
       extensions: override.extensions ? override.extensions : agent.extensions,
     };
   });

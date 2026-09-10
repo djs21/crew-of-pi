@@ -20,6 +20,7 @@ export interface AgentConfig {
   name: string;
   description: string;
   tools?: string[];
+  denyTools?: string[];
   model?: string;
   thinking?: string;
   skills?: string[];
@@ -219,6 +220,7 @@ export interface AgentConfigOverride {
   thinking?: string;
   extensions?: AgentExtensionRef[];
   skills?: string[];
+  denyTools?: string[];
 }
 
 export interface MainAgentToolPolicy {

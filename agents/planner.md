@@ -1,7 +1,7 @@
 ---
 name: planner
 description: Creates implementation plans from context and requirements. Read-only. Does not write code.
-tools: read, grep, find, ls
+denyTools: write, replace, insert, edit, bash
 model: claudinio/claudinio 
 interactive: false
 extensions: []

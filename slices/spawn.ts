@@ -83,6 +83,25 @@ class ConcurrencyTracker {
 
 const concurrencyTracker = new ConcurrencyTracker();
 
+export const GLOBAL_DENIED_TOOLS = [
+  "crew_spawn",
+  "crew_chain",
+  "crew_abort",
+  "crew_respond",
+  "crew_done",
+  "crew_inject",
+];
+
+export function computeEffectiveDenyList(agentConfig: AgentConfig): string[] {
+  const agentDeny = agentConfig.denyTools ?? [];
+  const combined = new Set([...GLOBAL_DENIED_TOOLS, ...agentDeny]);
+  return Array.from(combined);
+}
+
+export function filterSubagentTools<T extends { name: string }>(tools: T[], denyList: string[]): T[] {
+  const denySet = new Set(denyList);
+  return tools.filter((t) => !denySet.has(t.name));
+}
 // ─── Helpers ───────────────────────────────────────────────────────
 
 function getLastAssistantMessage(messages: AgentMessage[]): AssistantMessage | undefined {
@@ -232,6 +251,11 @@ export async function spawnSubagentSession(
       thinkingLevel: (agentConfig.thinking as any) ?? undefined,
     });
     session = sessionResult.session;
+
+    // Filter subagent tools according to effective deny list (agent denyTools + anti-recursion)
+    const effectiveDenyList = computeEffectiveDenyList(agentConfig);
+    const currentTools = session.state.tools;
+    session.state.tools = filterSubagentTools(currentTools, effectiveDenyList);
   } catch (err: any) {
     return { output: `Failed to create agent session: ${err.message}`, exitCode: 1 };
   }

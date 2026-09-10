@@ -1,7 +1,7 @@
 ---
 name: reviewer
 description: Code review specialist for quality and security analysis.
-tools: read, grep, find, ls, bash
+denyTools: write, replace, insert, edit
 model: openrouter/deepseek/deepseek-v4-pro
 interactive: false
 extensions: []

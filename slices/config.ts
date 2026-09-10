@@ -84,6 +84,9 @@ export function formatConfig(config: CrewConfig): string {
     if (cfg.skills && cfg.skills.length > 0) {
       lines.push(`- Skills: ${cfg.skills.join(", ")}`);
     }
+    if (cfg.denyTools && cfg.denyTools.length > 0) {
+      lines.push(`- Denied Tools: \`${cfg.denyTools.join(", ")}\``);
+    }
     lines.push("");
   }
   return lines.join("\n").trim();
@@ -124,7 +127,21 @@ async function handleConfigCommand(args: string, ctx: ExtensionCommandContext): 
     ctx.ui.notify(`Set model for ${agentName} to \`${modelStr}\` (${scope}).`, "info");
     return;
   }
+  if (sub === "deny" && parts[1] && parts[2]) {
+    const agentName = parts[1];
+    const denyList = parts[2].split(",").map((t) => t.trim()).filter(Boolean);
+    const scope = (parts[3]?.toLowerCase() === "project" ? "project" : "global") as "global" | "project";
 
+    const config = readConfig(ctx.cwd);
+    if (!config.agents) config.agents = {};
+    if (!config.agents[agentName]) config.agents[agentName] = {};
+    config.agents[agentName].denyTools = denyList;
+
+    writeConfig(config, scope, ctx.cwd);
+    registry.refresh(ctx.cwd, "both");
+    ctx.ui.notify(`Set denied tools for ${agentName} to [${denyList.join(", ")}] (${scope}).`, "info");
+    return;
+  }
   // Interactive picker fallback if invoked without specific sub-args
   const agentNames = registry.getNames();
   if (agentNames.length === 0) {
@@ -155,7 +172,7 @@ async function handleConfigCommand(args: string, ctx: ExtensionCommandContext): 
 
 export function registerConfigCommand(pi: ExtensionAPI): void {
   pi.registerCommand("crew-of-pi", {
-    description: "Manage crew-of-pi configuration: /crew-of-pi [show | model <agent> <model> | reset]",
+    description: "Manage crew-of-pi configuration: /crew-of-pi [show | model <agent> <model> | deny <agent> <tools> | reset]",
     async handler(args: string, ctx: ExtensionCommandContext) {
       await handleConfigCommand(args, ctx);
     },

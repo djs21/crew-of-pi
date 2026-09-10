@@ -1,7 +1,7 @@
 ---
 name: researcher
 description: Deep codebase research and analysis. Read-only. For understanding architecture, patterns, and dependencies.
-tools: read, grep, find, ls, bash
+denyTools: write, replace, insert, edit
 model: deepseek/deepseek-v4-flash 
 interactive: false
 extensions: []

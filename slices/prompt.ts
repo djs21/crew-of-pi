@@ -66,7 +66,13 @@ function scanSkillsDir(dir: string, acc: string[]): void {
 function formatAgentEntry(agent: AgentConfig): string {
   const parts: string[] = [`- **${agent.name}**: ${agent.description}`];
   if (agent.model) parts.push(`model: \`${agent.model}\``);
-  if (agent.tools && agent.tools.length > 0) parts.push(`tools: \`${agent.tools.join(", ")}\``);
+  if (agent.tools && agent.tools.length > 0) {
+    parts.push(`tools: \`${agent.tools.join(", ")}\``);
+  } else if (agent.denyTools && agent.denyTools.length > 0) {
+    parts.push(`denied tools: \`${agent.denyTools.join(", ")}\``);
+  } else {
+    parts.push("tools: all");
+  }
   if (agent.skills && agent.skills.length > 0) {
     const skillNames = agent.skills.flatMap(expandSkillName);
     parts.push(`skills: \`${skillNames.join(", ")}\``);

@@ -1,7 +1,7 @@
 ---
 name: scout
 description: Fast codebase recon that returns structured findings for handoff to other agents.
-tools: read, grep, find, ls, bash
+denyTools: write, replace, insert, edit
 model: openrouter/deepseek/deepseek-v4-flash
 interactive: false
 extensions: []
