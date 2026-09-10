@@ -60,6 +60,7 @@ export class SubagentDb {
       }
     } catch (err) {
       console.error(`[crew-of-pi] DB upsertStatus error:`, err);
+      throw err;
     }
   }
 
@@ -70,6 +71,7 @@ export class SubagentDb {
       ).run(subagentId, eventType, status, turns, ctxTokens, metadata ?? null, Date.now());
     } catch (err) {
       console.error(`[crew-of-pi] DB insertEvent error:`, err);
+      throw err;
     }
   }
 
@@ -114,7 +116,6 @@ export class MessageBus {
 
   constructor(db: DatabaseSync) {
     this.db = db;
-    this.db.exec("PRAGMA journal_mode=WAL");
     this.db.exec(`CREATE TABLE IF NOT EXISTS crew_messages (
       id TEXT PRIMARY KEY,
       from_id TEXT NOT NULL,

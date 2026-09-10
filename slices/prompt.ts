@@ -23,9 +23,6 @@ export const DEFAULT_PROMPT_CONFIG: PromptInjectionConfig = {
 
 let currentConfig: PromptInjectionConfig = { ...DEFAULT_PROMPT_CONFIG };
 
-export function setPromptConfig(config: Partial<PromptInjectionConfig>): void {
-  currentConfig = { ...currentConfig, ...config };
-}
 
 function expandSkillName(raw: string): string[] {
   const fileMatch = raw.match(/([^/]+)\/SKILL\.md$/);

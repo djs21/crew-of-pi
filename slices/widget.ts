@@ -56,8 +56,13 @@ export class WidgetStore {
       this.rows[existingIndex] = row;
     } else {
       this.rows.push(row);
+      // Evict only settled rows when store is full — never evict active rows
       if (this.rows.length > MAX_WIDGET_ROWS) {
-        this.rows = this.rows.slice(-MAX_WIDGET_ROWS);
+        const active = this.rows.filter((r) => r.status === "spawned" || r.status === "running");
+        const settled = this.rows.filter((r) => r.status !== "spawned" && r.status !== "running");
+        // Keep only the most recent settled rows
+        const maxSettled = MAX_WIDGET_ROWS - active.length;
+        this.rows = [...active, ...settled.slice(-Math.max(0, maxSettled))];
       }
     }
   }
