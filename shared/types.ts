@@ -219,8 +219,13 @@ export interface AgentConfigOverride {
   skills?: string[];
 }
 
+export interface MainAgentToolPolicy {
+  disabledTools?: string[];
+}
+
 export interface CrewConfig {
   agents?: Record<string, AgentConfigOverride>;
+  mainAgent?: MainAgentToolPolicy;
 }
 
 // ─── Prompt Types ───────────────────────────────────────────────

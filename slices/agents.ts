@@ -112,8 +112,12 @@ function parseAgentDoc(
   cwd: string,
   warnings: AgentDiscoveryWarning[],
 ): AgentConfig | null {
+  const basename = path.basename(filePath, ".md");
+  if (basename === "AGENTS" || basename === "README" || basename === "CLAUDE") {
+    return null;
+  }
   const { frontmatter, body } = parseFrontmatter(content);
-  const name = frontmatter.name?.trim() || path.basename(filePath, ".md");
+  const name = frontmatter.name?.trim() || basename;
   const description = frontmatter.description?.trim() || "";
 
   let tools: string[] | undefined;
@@ -240,19 +244,53 @@ export function findAgent(cwd: string, scope: AgentScope, name: string): AgentCo
 
 export function loadCrewConfig(cwd: string): CrewConfig | null {
   const paths = [
+    path.resolve(cwd, ".pi/crew-of-pi.json"),
     path.resolve(cwd, ".pi/crew.json"),
+    path.resolve(getAgentDir(), "crew-of-pi.json"),
     path.resolve(getAgentDir(), "crew.json"),
   ];
-  for (const p of paths) {
+  let merged: CrewConfig = {};
+  let found = false;
+
+  // Read global then project to merge overrides
+  const globalPaths = [
+    path.resolve(getAgentDir(), "crew-of-pi.json"),
+    path.resolve(getAgentDir(), "crew.json"),
+  ];
+  for (const p of globalPaths) {
     if (fs.existsSync(p)) {
       try {
-        return JSON.parse(fs.readFileSync(p, "utf-8")) as CrewConfig;
+        merged = JSON.parse(fs.readFileSync(p, "utf-8"));
+        found = true;
+        break;
       } catch {
-        // ignore parse error
+        // ignore
       }
     }
   }
-  return null;
+
+  const projectPaths = [
+    path.resolve(cwd, ".pi/crew-of-pi.json"),
+    path.resolve(cwd, ".pi/crew.json"),
+  ];
+  for (const p of projectPaths) {
+    if (fs.existsSync(p)) {
+      try {
+        const proj = JSON.parse(fs.readFileSync(p, "utf-8"));
+        merged = {
+          ...merged,
+          agents: { ...merged.agents, ...proj.agents },
+          mainAgent: proj.mainAgent ?? merged.mainAgent,
+        };
+        found = true;
+        break;
+      } catch {
+        // ignore
+      }
+    }
+  }
+
+  return found ? merged : null;
 }
 
 export function applyConfigOverrides(agents: AgentConfig[], config: CrewConfig): AgentConfig[] {

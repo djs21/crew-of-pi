@@ -8,47 +8,56 @@ import { type ExtensionAPI, type ExtensionCommandContext, getAgentDir } from "@e
 import type { CrewConfig } from "../shared/types";
 import { getAgentRegistry } from "./agents";
 
-function getGlobalConfigPath(): string {
-  return path.resolve(getAgentDir(), "crew.json");
+function getGlobalConfigPaths(): string[] {
+  const dir = getAgentDir();
+  return [path.resolve(dir, "crew-of-pi.json"), path.resolve(dir, "crew.json")];
 }
 
-function getProjectConfigPath(cwd: string): string {
-  return path.resolve(cwd, ".pi/crew.json");
+function getProjectConfigPaths(cwd: string): string[] {
+  return [path.resolve(cwd, ".pi/crew-of-pi.json"), path.resolve(cwd, ".pi/crew.json")];
 }
 
 export function readConfig(cwd?: string): CrewConfig {
-  const globalPath = getGlobalConfigPath();
-  const projectPath = cwd ? getProjectConfigPath(cwd) : null;
-
   let config: CrewConfig = {};
-  if (fs.existsSync(globalPath)) {
-    try {
-      config = JSON.parse(fs.readFileSync(globalPath, "utf-8"));
-    } catch {
-      // ignore
+
+  // 1. Read global config (crew-of-pi.json takes precedence over crew.json)
+  for (const p of getGlobalConfigPaths()) {
+    if (fs.existsSync(p)) {
+      try {
+        config = JSON.parse(fs.readFileSync(p, "utf-8"));
+        break;
+      } catch {
+        // ignore
+      }
     }
   }
 
-  if (projectPath && fs.existsSync(projectPath)) {
-    try {
-      const projectConfig = JSON.parse(fs.readFileSync(projectPath, "utf-8"));
-      config = {
-        ...config,
-        agents: {
-          ...config.agents,
-          ...projectConfig.agents,
-        },
-      };
-    } catch {
-      // ignore
+  // 2. Merge project config
+  if (cwd) {
+    for (const p of getProjectConfigPaths(cwd)) {
+      if (fs.existsSync(p)) {
+        try {
+          const projectConfig = JSON.parse(fs.readFileSync(p, "utf-8"));
+          config = {
+            ...config,
+            agents: {
+              ...config.agents,
+              ...projectConfig.agents,
+            },
+            mainAgent: projectConfig.mainAgent ?? config.mainAgent,
+          };
+          break;
+        } catch {
+          // ignore
+        }
+      }
     }
   }
 
   return config;
 }
-
 export function writeConfig(config: CrewConfig, scope: "global" | "project" = "global", cwd?: string): void {
-  const targetPath = scope === "project" && cwd ? getProjectConfigPath(cwd) : getGlobalConfigPath();
+  const targetPath = scope === "project" && cwd ? getProjectConfigPaths(cwd)[0] : getGlobalConfigPaths()[0];
   const dir = path.dirname(targetPath);
   if (!fs.existsSync(dir)) {
     fs.mkdirSync(dir, { recursive: true });
