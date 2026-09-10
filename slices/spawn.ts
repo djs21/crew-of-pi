@@ -424,7 +424,7 @@ export async function spawnSubagentAsync(
         cwd,
         handle,
         (turns, status, usage) => {
-          registry.updateRunning(subagentId, { turns, status, usage });
+          registry.updateRunning(subagentId, { turns, status, usage, _tool: handle._tool });
           syncWidgetFromRegistry(pi);
         },
         sessionFile,
