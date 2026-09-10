@@ -192,18 +192,17 @@ When the user requests a durable behavior change, record it here or in the relev
 
 | Child | Path | Scope |
 |-------|------|-------|
-| **slices/AGENTS.md** | `slices/` | Vertical slice architecture — agent discovery, spawn, blockers, prompt, chain, comms, lifecycle, widget, crew-list, config |
+| **slices/AGENTS.md** | `slices/` | Consolidated vertical slices — agents, spawn, chain, lifecycle, prompt, widget, config, db |
 | **agents/AGENTS.md** | `agents/` | Bundled subagent definitions (worker, scout, researcher, planner, reviewer) |
 | **prompts/AGENTS.md** | `prompts/` | Workflow templates — /implement, /research |
 | **docs/AGENTS.md** | `docs/` | Project documentation — plan.md, audit findings |
 | **shared/AGENTS.md** | `shared/` | Cross-slice TypeScript type contracts |
 
 ### DOX Tree
-
 ```
 AGENTS.md (root)
-├── slices/AGENTS.md          — 10 vertical slices: agents, spawn, blockers,
-│                                prompt, chain, comms, lifecycle, widget, crew-list, config
+├── slices/AGENTS.md          — 7 consolidated vertical slices: agents, spawn, chain,
+│                                lifecycle, prompt, widget, config + db persistence
 ├── agents/AGENTS.md          — 5 bundled agent .md definitions
 ├── prompts/AGENTS.md         — 2 workflow templates
 ├── docs/AGENTS.md            — 2 durable documents (plan, audit)

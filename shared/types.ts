@@ -167,6 +167,62 @@ export interface BusEntry {
   data: Record<string, unknown>;
 }
 
+// ─── Chain Types ──────────────────────────────────────────────────
+
+export interface ChainStepConfig {
+  agent: string;
+  task: string;
+  model?: string;
+}
+
+export interface ChainStepResult {
+  step: number;
+  agent: string;
+  subagent_id: string;
+  status: SubagentStatus;
+  output: string;
+  turns: number;
+  tokens: number;
+}
+
+export interface ChainProgress {
+  totalSteps: number;
+  currentStep: number;
+  currentAgent: string;
+  completedSteps: ChainStepResult[];
+}
+
+// ─── Widget Types ─────────────────────────────────────────────────
+
+export interface WidgetEntry {
+  id: string;
+  agentName: string;
+  task: string;
+  status: SubagentStatus;
+  turns: number;
+  tokens: number;
+  spawnedAt: number;
+}
+
+export interface WidgetStoreState {
+  activeSubagents: WidgetEntry[];
+  totalSpawned: number;
+  lastEvent: string;
+}
+
+// ─── Configuration Types ──────────────────────────────────────────
+
+export interface AgentConfigOverride {
+  model?: string;
+  thinking?: string;
+  extensions?: AgentExtensionRef[];
+  skills?: string[];
+}
+
+export interface CrewConfig {
+  agents?: Record<string, AgentConfigOverride>;
+}
+
 // ─── Prompt Types ───────────────────────────────────────────────
 
 export interface PromptInjectionConfig {
