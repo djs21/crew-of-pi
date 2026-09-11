@@ -20,7 +20,7 @@ Feature slices composing crew-of-pi. Consolidated lean architecture with 7 core 
 - **slices/lifecycle.ts** — Session cleanup and subagent lifecycle management tools (`crew_abort`, `crew_respond`, `crew_done`).
 - **slices/prompt.ts** — Injects available crew members, skills, and tools into the main agent's prompt context.
 - **slices/widget.ts** — Real-time TUI widget rendering active/settled subagents and token consumption.
-- **slices/config.ts** — CLI config manager for model overrides and crew settings.
+- **slices/config.ts** — Configuration manager and `/crew-of-pi` slash command. Supports 6 subcommands (`menu`, `show`, `model`, `deny`, `reset`, `help`), positional tab autocompletion, interactive model picking (ModelRegistry), and interactive deny-tool toggles (SettingsList with locked anti-recursion tools). Non-TUI safe.
 - **slices/db.ts** — Native SQLite schema and queries for session recovery, turn events, and inter-agent messages.
 
 ## Local Contracts
@@ -34,4 +34,5 @@ Feature slices composing crew-of-pi. Consolidated lean architecture with 7 core 
 ## Verification
 
 - `npx -y typescript --noEmit --module esnext --target es2022 --moduleResolution bundler --skipLibCheck index.ts slices/*.ts shared/*.ts` passes with 0 errors.
+- `npx -y tsx --test tests/*.test.ts` passes (denytools and config-command unit test suites).
 - Clean shutdown disposing child sessions without orphaned locks.

@@ -5,6 +5,9 @@
   "keywords": ["pi-package", "pi-extension", "crew-of-pi", "subagent", "orchestration"],
   "license": "MIT",
   "type": "module",
+  "scripts": {
+    "test": "npx -y tsx --test tests/*.test.ts"
+  },
   "pi": {
     "extensions": ["./index.ts"],
     "prompts": ["./prompts"]
