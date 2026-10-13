@@ -152,6 +152,96 @@ function resolveModel(
 }
 
 /**
+ * Persona-specific OODA instructions based on the agent's character and role.
+ */
+function getPersonaOodaGuidance(name: string): string {
+  const lower = name.toLowerCase();
+  if (lower.includes("scout")) {
+    return [
+      "- **Observe**: Reconnoiter the codebase thoroughly. Scan files, exports, and relationships.",
+      "- **Orient**: Map coordinates and dependencies accurately. Do not alter files.",
+      "- **Decide**: Pinpoint exact anchors, file paths, and line numbers needed by the warband.",
+      "- **Act**: Return structured findings with exact coordinates for handoff to other agents.",
+    ].join("\n");
+  }
+  if (lower.includes("worker")) {
+    return [
+      "- **Observe**: Inspect the target code, callers, and tests before touching anything.",
+      "- **Orient**: Choose the smallest complete change that solves the problem. Keep diffs minimal and clean.",
+      "- **Decide**: Plan the precise edits and required regression checks before execution.",
+      "- **Act**: Implement cleanly and verify empirically with test execution. Never leave broken tests.",
+    ].join("\n");
+  }
+  if (lower.includes("reviewer")) {
+    return [
+      "- **Observe**: Examine diffs, changed files, and surrounding context with an adversarial eye.",
+      "- **Orient**: Hunt for security holes, edge-case failures, regression risks, and contract violations.",
+      "- **Decide**: Rank findings by severity (Critical / High / Medium / Low) with concrete evidence.",
+      "- **Act**: Deliver an unsparing, decision-useful review report with line-specific remediation.",
+    ].join("\n");
+  }
+  if (lower.includes("planner")) {
+    return [
+      "- **Observe**: Survey requirements, dependencies, and existing architectural patterns.",
+      "- **Orient**: Identify critical path, sequencing blockers, and risk factors.",
+      "- **Decide**: Formulate discrete, incremental phases with unambiguous acceptance criteria.",
+      "- **Act**: Produce executable, step-by-step roadmaps ready for delegate execution.",
+    ].join("\n");
+  }
+  if (lower.includes("researcher")) {
+    return [
+      "- **Observe**: Gather primary source evidence, inspect implementations, and probe documentation.",
+      "- **Orient**: Compare competing architectural approaches and diagnose underlying mechanics.",
+      "- **Decide**: Isolate root causes and extract actionable trade-offs.",
+      "- **Act**: Provide dense, evidence-backed syntheses with high-trust citations.",
+    ].join("\n");
+  }
+  return [
+    "- **Observe**: Thoroughly survey the target environment, context files, and problem space.",
+    "- **Orient**: Synthesize facts without assumptions, hallucinations, or unverified claims.",
+    "- **Decide**: Choose the single most decisive action that advances the bounded objective.",
+    "- **Act**: Execute decisively with tools and return dense, high-signal results.",
+  ].join("\n");
+}
+
+/**
+ * Builds the layered system prompt for a subagent:
+ * Layer 1: Character & Primary Mission (Persona)
+ * Layer 2: OODA Loop Operating Discipline (Persona-adapted)
+ * Layer 3: OODA Guardrails (Hukum Besi Warband)
+ */
+export function buildSubagentSystemPrompt(agentConfig: AgentConfig): string {
+  const parts: string[] = [];
+
+  // Layer 1: Character & Primary Mission (Persona)
+  parts.push(`# Character & Mission: ${agentConfig.name}`);
+  if (agentConfig.systemPrompt && agentConfig.systemPrompt.trim().length > 0) {
+    parts.push(agentConfig.systemPrompt.trim());
+  } else if (agentConfig.description && agentConfig.description.trim().length > 0) {
+    parts.push(agentConfig.description.trim());
+  } else {
+    parts.push(`You are ${agentConfig.name}, a specialized operative serving in The Orc's warband.`);
+  }
+
+  // Layer 2: OODA Loop Operating Discipline (Persona-adapted)
+  parts.push("");
+  parts.push("## Way of War: The OODA Loop");
+  parts.push("You operate under the command of The Orc (Orchestrator). Execute your mission through the OODA Loop:");
+  parts.push(getPersonaOodaGuidance(agentConfig.name));
+
+  // Layer 3: OODA Guardrails (Hukum Besi Warband)
+  parts.push("");
+  parts.push("## OODA Guardrails");
+  parts.push("1. Always read before write or edit. Never mutate files blindly without inspecting current state.");
+  parts.push("2. Stay within the project root. Confine all operations strictly to the active workspace.");
+  parts.push("3. Safe introspection only. Never execute destructive bash commands (e.g. rm -rf, force overwrites).");
+  parts.push("4. Zero hallucination. Never guess, assume, or fabricate paths, symbols, or facts. State ambiguities honestly.");
+  parts.push("5. Density & Context Hygiene. Return concise, high-signal conclusions with exact anchors and evidence.");
+
+  return parts.join("\n");
+}
+
+/**
  * Resource loader: subagents inherit user extensions, but crew-of-pi itself is filtered out to prevent infinite recursion.
  */
 function createSubagentResourceLoader(
@@ -179,11 +269,16 @@ function createSubagentResourceLoader(
     }
   }
 
+  const subagentSystemPrompt = buildSubagentSystemPrompt(agentConfig);
+
   return new DefaultResourceLoader({
     cwd,
     agentDir: infra.agentDir,
     additionalExtensionPaths: additionalPaths.length > 0 ? additionalPaths : undefined,
     additionalSkillPaths: agentConfig.skills && agentConfig.skills.length > 0 ? agentConfig.skills : undefined,
+    appendSystemPromptOverride: (base) => {
+      return [...base, subagentSystemPrompt];
+    },
     extensionsOverride: (base) => {
       // Exclude crew-of-pi extension to prevent recursion, keep all other extensions intact
       return {
@@ -338,10 +433,6 @@ export async function spawnSubagentSession(
     }
   });
 
-  const subagentTask = agentConfig.systemPrompt
-    ? `${agentConfig.systemPrompt}\n\nTask:\n${task}`
-    : task;
-
   try {
     handle.status = "running";
     infra.subagentDb.upsertStatus(handle.id, {
@@ -351,7 +442,7 @@ export async function spawnSubagentSession(
       updated_at: Date.now(),
     });
 
-    await session.prompt(subagentTask);
+    await session.prompt(task);
 
     const messages = session.messages as AgentMessage[];
     const outputText = getAssistantText(messages) ?? "(no output generated)";
